@@ -15,30 +15,31 @@ st.set_page_config(
 st.markdown("""
     <style>
     body {
-        background-color: #0d0d0d;
-        color: white;
+        background-color: #ffffff;
+        color: #000000;
     }
     .stApp {
-        background-color: #0d0d0d;
-        color: white;
+        background-color: #ffffff;
+        color: #000000;
     }
     /* HEADER style */
     .app-header {
-        background-color: #000;
+        background-color: #f5f9ff;
         padding: 15px;
         text-align: left;
         font-size: 22px;
         font-weight: bold;
-        color: white;
-        border-bottom: 1px solid #222;
+        color: #000000;
+        border-bottom: 2px solid #dcecff;
     }
     .brand {
-        color: #1ab7ea; /* bleu Vimeo */
+        color: #1ab7ea; /* bleu clair Vimeo */
     }
     .stTextInput, .stFileUploader, .stTextArea {
-        background-color: #1a1a1a;
-        color: white;
+        background-color: #f5faff;
+        color: #000000;
         border-radius: 8px;
+        border: 1px solid #d0e7f7;
     }
     .stButton>button {
         background-color: #1ab7ea;
@@ -47,6 +48,7 @@ st.markdown("""
         border-radius: 8px;
         height: 50px;
         width: 100%;
+        border: none;
     }
     .stButton>button:hover {
         background-color: #18a5d5;
