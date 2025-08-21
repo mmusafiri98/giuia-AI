@@ -1,13 +1,2 @@
 streamlit
-Pillow
-opencv-python
-imageio
-torch
-torchvision
-torchaudio
-diffusers
-transformers
-accelerate
-safetensors
-huggingface-hub
-gradio
+gradio_client
