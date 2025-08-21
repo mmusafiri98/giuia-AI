@@ -1,8 +1,11 @@
 streamlit
 torch
+torchvision
 diffusers
 transformers
 pillow
 opencv-python-headless
 numpy
 huggingface-hub
+safetensors
+accelerate
