@@ -1,2 +1,35 @@
-streamlit
-gradio-client
+# Core dependencies
+streamlit>=1.28.0
+torch>=2.0.0
+torchvision>=0.15.0
+torchaudio>=2.0.0
+
+# Diffusion and ML models
+diffusers>=0.24.0
+transformers>=4.35.0
+accelerate>=0.24.0
+safetensors>=0.4.0
+huggingface-hub>=0.19.0
+
+# Image and Video processing
+pillow>=10.0.0
+opencv-python>=4.8.0
+numpy>=1.24.0
+scipy>=1.11.0
+
+# Additional utilities
+requests>=2.31.0
+tqdm>=4.66.0
+packaging>=23.0
+
+# Optional: For better performance
+xformers>=0.0.22; platform_machine != "arm64"
+bitsandbytes>=0.41.0; platform_system == "Linux"
+
+# Optional: For audio processing (if needed)
+librosa>=0.10.0
+soundfile>=0.12.0
+
+# Development and debugging
+psutil>=5.9.0
+matplotlib>=3.7.0
