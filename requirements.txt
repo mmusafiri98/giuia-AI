@@ -1,19 +1,12 @@
-# Interface
 streamlit
 Pillow
 opencv-python
 imageio
-
-# Deep Learning
 torch
 torchvision
 torchaudio
-
-# Diffusion models (text-to-video, text-to-image)
 diffusers
 transformers
 accelerate
 safetensors
-
-# Hugging Face Hub (pour télécharger les modèles)
 huggingface-hub
