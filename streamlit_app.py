@@ -88,7 +88,7 @@ if st.button("🚀 Générer la vidéo"):
                 video_clip = VideoFileClip(video_local_path)
                 audio_clip = AudioFileClip(audio_path)
 
-                # Redimensionner audio à la durée de la vidéo
+                # Adapter la durée audio si nécessaire
                 if audio_clip.duration > video_clip.duration:
                     audio_clip = audio_clip.subclip(0, video_clip.duration)
 
@@ -100,7 +100,6 @@ if st.button("🚀 Générer la vidéo"):
                 st.video(final_path)
 
             else:
-                # Pas de texte TTS, juste afficher la vidéo
                 st.success("✅ Vidéo générée sans audio.")
                 st.video(video_local_path)
 
