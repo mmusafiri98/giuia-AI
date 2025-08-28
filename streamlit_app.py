@@ -3,7 +3,6 @@ from gradio_client import Client, handle_file
 import tempfile
 import shutil
 import os
-from moviepy.editor import VideoFileClip, AudioFileClip
 
 # ---------- CONFIG ----------
 st.set_page_config(page_title="Vimeo AI - Video Generator", page_icon="🎬", layout="centered")
@@ -67,6 +66,7 @@ if st.button("🚀 Générer la vidéo"):
                 st.stop()
 
             video_local_path = video_result["video"]
+            st.success("✅ Vidéo générée avec succès !")
 
             # ---- TTS GENERATION ----
             if transcript_text:
@@ -84,23 +84,16 @@ if st.button("🚀 Générer la vidéo"):
                     api_name="/text_to_speech_edge"
                 )
 
-                # ---- FUSION AUDIO + VIDEO ----
-                video_clip = VideoFileClip(video_local_path)
-                audio_clip = AudioFileClip(audio_path)
+                st.success("🎤 Audio généré avec succès !")
 
-                # Adapter la durée audio si nécessaire
-                if audio_clip.duration > video_clip.duration:
-                    audio_clip = audio_clip.subclip(0, video_clip.duration)
-
-                final_clip = video_clip.set_audio(audio_clip)
-                final_path = os.path.join(STATIC_DIR, "output_with_audio.mp4")
-                final_clip.write_videofile(final_path, codec="libx264", audio_codec="aac")
-
-                st.success("✅ Vidéo et audio fusionnés avec succès !")
-                st.video(final_path)
+                # ---- AFFICHAGE SIMULTANÉ ----
+                col_video, col_audio = st.columns([1, 1])
+                with col_video:
+                    st.video(video_local_path)
+                with col_audio:
+                    st.audio(audio_path)
 
             else:
-                st.success("✅ Vidéo générée sans audio.")
                 st.video(video_local_path)
 
         except Exception as e:
