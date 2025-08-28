@@ -2,3 +2,6 @@ streamlit
 gradio_client
 moviepy
 numpy
+imageio
+imageio-ffmpeg
+decorator
