@@ -1,4 +1,4 @@
-moviepy
-gradio_client
 streamlit
-
+gradio_client
+moviepy
+numpy
