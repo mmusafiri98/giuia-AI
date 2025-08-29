@@ -3,14 +3,32 @@ from gradio_client import Client, handle_file
 import tempfile
 import shutil
 import os
+import uuid
 
 # ---------- CONFIG ----------
 st.set_page_config(page_title="VimeoAI - Video Generator", page_icon="🎬", layout="centered")
+
 STATIC_DIR = "static"
 os.makedirs(STATIC_DIR, exist_ok=True)
+GENERATED_DIR = "generated_videos"
+os.makedirs(GENERATED_DIR, exist_ok=True)
 
 # ---------- CLIENT ----------
 video_client = Client("Lightricks/ltx-video-distilled")
+
+# ---------- INIT SESSION ----------
+if "gallery" not in st.session_state:
+    st.session_state["gallery"] = []
+
+# ---------- LOAD EXISTING VIDEOS ----------
+for file in os.listdir(GENERATED_DIR):
+    if file.endswith(".mp4"):
+        video_path = os.path.join(GENERATED_DIR, file)
+        if video_path not in [v["path"] for v in st.session_state["gallery"]]:
+            st.session_state["gallery"].append({
+                "path": video_path,
+                "name": file
+            })
 
 # ---------- HEADER ----------
 st.markdown("<h1 style='text-align: center; color: #4B0082;'>VimeoAI</h1>", unsafe_allow_html=True)
@@ -24,6 +42,15 @@ with col1:
     duration = st.slider("⏱ Durée de la vidéo (sec)", 2, 10, 5)
 with col2:
     resolution = st.selectbox("🎥 Résolution", ["512x512", "704x512", "1024x576"])
+
+# ---------- SIDEBAR GALERIE ----------
+st.sidebar.header("📂 Galerie de vidéos générées")
+if st.session_state["gallery"]:
+    for idx, video in enumerate(st.session_state["gallery"]):
+        st.sidebar.video(video["path"])
+        st.sidebar.markdown(f"[⬇️ Télécharger {video['name']}]({video['path']})", unsafe_allow_html=True)
+else:
+    st.sidebar.info("Aucune vidéo générée pour le moment.")
 
 # ---------- GENERATE BUTTON ----------
 if st.button("🚀 Générer la vidéo"):
@@ -59,9 +86,20 @@ if st.button("🚀 Générer la vidéo"):
                 st.error(f"❌ Erreur vidéo : {video_result}")
                 st.stop()
 
+            # ---- SAVE VIDEO LOCALLY ----
             video_local_path = video_result["video"]
+            unique_name = f"{uuid.uuid4().hex}.mp4"
+            save_path = os.path.join(GENERATED_DIR, unique_name)
+            shutil.copy(video_local_path, save_path)
+
+            # ---- UPDATE GALLERY ----
+            st.session_state["gallery"].append({
+                "path": save_path,
+                "name": unique_name
+            })
+
             st.success("✅ Vidéo générée avec succès !")
-            st.video(video_local_path)
+            st.video(save_path)
 
         except Exception as e:
             st.error(f"🚨 Erreur lors de la génération : {str(e)}")
