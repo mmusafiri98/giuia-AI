@@ -34,6 +34,22 @@ for file in os.listdir(GENERATED_DIR):
 st.markdown("<h1 style='text-align: center; color: #4B0082;'>VimeoAI</h1>", unsafe_allow_html=True)
 st.markdown("<p style='text-align: center; color: #666;'>Générez vos vidéos à partir d'une image et d'un prompt.</p>", unsafe_allow_html=True)
 
+# ---------- SIDEBAR ----------
+st.sidebar.header("📂 Navigation")
+# Link alla pagina Text-Image
+st.sidebar.markdown(
+    "[🎨 Text-Image](https://ntppmecv4w2uu4w9v7hxmb.streamlit.app)",
+    unsafe_allow_html=True
+)
+
+st.sidebar.header("📂 Galerie de vidéos générées")
+if st.session_state["gallery"]:
+    for idx, video in enumerate(st.session_state["gallery"]):
+        st.sidebar.video(video["path"])
+        st.sidebar.markdown(f"[⬇️ Télécharger {video['name']}]({video['path']})", unsafe_allow_html=True)
+else:
+    st.sidebar.info("Aucune vidéo générée pour le moment.")
+
 # ---------- FORMULAIRE VIDEO ----------
 uploaded_file = st.file_uploader("📷 Choisissez une image", type=["png", "jpg", "jpeg"])
 prompt = st.text_input("📝 Entrez une description / prompt pour la vidéo")
@@ -42,15 +58,6 @@ with col1:
     duration = st.slider("⏱ Durée de la vidéo (sec)", 2, 10, 5)
 with col2:
     resolution = st.selectbox("🎥 Résolution", ["512x512", "704x512", "1024x576"])
-
-# ---------- SIDEBAR GALERIE ----------
-st.sidebar.header("📂 Galerie de vidéos générées")
-if st.session_state["gallery"]:
-    for idx, video in enumerate(st.session_state["gallery"]):
-        st.sidebar.video(video["path"])
-        st.sidebar.markdown(f"[⬇️ Télécharger {video['name']}]({video['path']})", unsafe_allow_html=True)
-else:
-    st.sidebar.info("Aucune vidéo générée pour le moment.")
 
 # ---------- GENERATE BUTTON ----------
 if st.button("🚀 Générer la vidéo"):
@@ -103,4 +110,5 @@ if st.button("🚀 Générer la vidéo"):
 
         except Exception as e:
             st.error(f"🚨 Erreur lors de la génération : {str(e)}")
+
 
