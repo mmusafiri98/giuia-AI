@@ -38,7 +38,7 @@ st.markdown("<p style='text-align: center; color: #666;'>Générez vos vidéos �
 st.sidebar.header("📂 Navigation")
 # Link alla pagina Text-Image
 st.sidebar.markdown(
-    "[🎨 Text-Image](https://ntppmecv4w2uu4w9v7hxmb.streamlit.app)",
+    "[🎨create video with Text-video](https://ntppmecv4w2uu4w9v7hxmb.streamlit.app)",
     unsafe_allow_html=True
 )
 
