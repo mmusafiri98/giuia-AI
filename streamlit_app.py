@@ -5,31 +5,25 @@ import shutil
 import os
 
 # ---------- CONFIG ----------
-st.set_page_config(page_title="Vimeo AI - Video Generator", page_icon="🎬", layout="centered")
+st.set_page_config(page_title="VimeoAI - Video Generator", page_icon="🎬", layout="centered")
 STATIC_DIR = "static"
 os.makedirs(STATIC_DIR, exist_ok=True)
 
-# ---------- CLIENTS ----------
+# ---------- CLIENT ----------
 video_client = Client("Lightricks/ltx-video-distilled")
-tts_client = Client("MohamedRashad/Multilingual-TTS")
 
-# ---------- ONGLETS ----------
-tab1, tab2 = st.tabs(["🎥 Video", "🗣 Transcript"])
+# ---------- HEADER ----------
+st.markdown("<h1 style='text-align: center; color: #4B0082;'>VimeoAI</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; color: #666;'>Générez vos vidéos à partir d'une image et d'un prompt.</p>", unsafe_allow_html=True)
 
-# ---------- TAB VIDEO ----------
-with tab1:
-    uploaded_file = st.file_uploader("📷 Choisissez une image", type=["png", "jpg", "jpeg"])
-    prompt = st.text_input("📝 Entrez une description / prompt pour la vidéo")
-    col1, col2 = st.columns([1, 1])
-    with col1:
-        duration = st.slider("⏱ Durée de la vidéo (sec)", 2, 10, 5)
-    with col2:
-        resolution = st.selectbox("🎥 Résolution", ["512x512", "704x512", "1024x576"])
-
-# ---------- TAB TRANSCRIPT ----------
-with tab2:
-    transcript_text = st.text_area("📝 Entrez le texte que le modèle doit lire dans la vidéo")
-    transcript_language = st.selectbox("🌐 Langue du texte", ["French", "English", "Spanish", "Arabic"])
+# ---------- FORMULAIRE VIDEO ----------
+uploaded_file = st.file_uploader("📷 Choisissez une image", type=["png", "jpg", "jpeg"])
+prompt = st.text_input("📝 Entrez une description / prompt pour la vidéo")
+col1, col2 = st.columns([1, 1])
+with col1:
+    duration = st.slider("⏱ Durée de la vidéo (sec)", 2, 10, 5)
+with col2:
+    resolution = st.selectbox("🎥 Résolution", ["512x512", "704x512", "1024x576"])
 
 # ---------- GENERATE BUTTON ----------
 if st.button("🚀 Générer la vidéo"):
@@ -67,34 +61,8 @@ if st.button("🚀 Générer la vidéo"):
 
             video_local_path = video_result["video"]
             st.success("✅ Vidéo générée avec succès !")
-
-            # ---- TTS GENERATION ----
-            if transcript_text:
-                speakers_data, _ = tts_client.predict(
-                    language=transcript_language,
-                    api_name="/get_speakers"
-                )
-                speaker = speakers_data["value"]
-
-                _, audio_path = tts_client.predict(
-                    text=transcript_text,
-                    language_code=transcript_language,
-                    speaker=speaker,
-                    tashkeel_checkbox=False,
-                    api_name="/text_to_speech_edge"
-                )
-
-                st.success("🎤 Audio généré avec succès !")
-
-                # ---- AFFICHAGE SIMULTANÉ ----
-                col_video, col_audio = st.columns([1, 1])
-                with col_video:
-                    st.video(video_local_path)
-                with col_audio:
-                    st.audio(audio_path)
-
-            else:
-                st.video(video_local_path)
+            st.video(video_local_path)
 
         except Exception as e:
             st.error(f"🚨 Erreur lors de la génération : {str(e)}")
+
