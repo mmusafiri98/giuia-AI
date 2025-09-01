@@ -37,10 +37,21 @@ st.markdown("<p style='text-align: center; color: #666;'>Générez vos vidéos �
 # ---------- SIDEBAR ----------
 st.sidebar.header("📂 Navigation")
 # Link alla pagina Text-Image
-st.sidebar.markdown(
-    "[🎨create video with Text-video](https://ntppmecv4w2uu4w9v7hxmb.streamlit.app)",
-    unsafe_allow_html=True
-)
+      <a href="https://br4dskhbvzaqcdzmxgst7e.streamlit.app" target="_blank">
+            <button style="background: linear-gradient(135deg,#3498db,#2980b9);
+                           color:white;
+                           border:none;
+                           padding:10px 20px;
+                           border-radius:8px;
+                           font-weight:600;
+                           cursor:pointer;
+                           width:100%;">
+                🌐 create video fron image with vimeoAI
+            </button>
+        </a>
+        """,
+        unsafe_allow_html=True
+    )
 
 st.sidebar.header("📂 Galerie de vidéos générées")
 if st.session_state["gallery"]:
@@ -51,7 +62,7 @@ else:
     st.sidebar.info("Aucune vidéo générée pour le moment.")
 
 # ---------- FORMULAIRE VIDEO ----------
-uploaded_file = st.file_uploader("📷 Choisissez une image", type=["png", "jpg", "jpeg"])
+uploaded_file = st.file_uploader("📷 Choisissez une image", type=["png", "jpg", "jpeg","webp"])
 prompt = st.text_input("📝 Entrez une description / prompt pour la vidéo")
 col1, col2 = st.columns([1, 1])
 with col1:
