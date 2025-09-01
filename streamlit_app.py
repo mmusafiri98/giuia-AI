@@ -37,34 +37,56 @@ st.markdown("<p style='text-align: center; color: #666;'>Générez vos vidéos �
 # ---------- SIDEBAR ----------
 st.sidebar.header("📂 Navigation")
 
-    st.markdown("---")
-    st.markdown("**Navigation externe :**")
-    st.markdown(
-        """
-        <a href="https://br4dskhbvzaqcdzmxgst7e.streamlit.app" target="_blank">
-            <button style="background: linear-gradient(135deg,#3498db,#2980b9);
-                           color:white;
-                           border:none;
-                           padding:10px 20px;
-                           border-radius:8px;
-                           font-weight:600;
-                           cursor:pointer;
-                           width:100%;">
-                🌐 create video fron image with vimeoAI
-            </button>
-        </a>
-        """,
-        unsafe_allow_html=True
-    )
+st.sidebar.markdown("---")
+st.sidebar.markdown("**Navigation externe :**")
 
+# Bouton vers la première app
+st.sidebar.markdown(
+    """
+    <a href="https://br4dskhbvzaqcdzmxgst7e.streamlit.app" target="_blank">
+        <button style="background: linear-gradient(135deg,#3498db,#2980b9);
+                       color:white;
+                       border:none;
+                       padding:10px 20px;
+                       border-radius:8px;
+                       font-weight:600;
+                       cursor:pointer;
+                       width:100%;">
+            🌐 Create Video from Image with VimeoAI
+        </button>
+    </a>
+    """,
+    unsafe_allow_html=True
+)
 
+# Bouton vers la deuxième app
+st.sidebar.markdown(
+    """
+    <a href="https://ntppmecv4w2uu4w9v7hxmb.streamlit.app" target="_blank">
+        <button style="background: linear-gradient(135deg,#2ecc71,#27ae60);
+                       color:white;
+                       border:none;
+                       padding:10px 20px;
+                       border-radius:8px;
+                       font-weight:600;
+                       cursor:pointer;
+                       width:100%; margin-top:10px;">
+            🌐 Autre application Streamlit
+        </button>
+    </a>
+    """,
+    unsafe_allow_html=True
+)
+
+# Galerie des vidéos générées
 st.sidebar.header("📂 Galerie de vidéos générées")
-if st.session_state["gallery"]:
+if "gallery" in st.session_state and st.session_state["gallery"]:
     for idx, video in enumerate(st.session_state["gallery"]):
         st.sidebar.video(video["path"])
         st.sidebar.markdown(f"[⬇️ Télécharger {video['name']}]({video['path']})", unsafe_allow_html=True)
 else:
     st.sidebar.info("Aucune vidéo générée pour le moment.")
+
 
 # ---------- FORMULAIRE VIDEO ----------
 uploaded_file = st.file_uploader("📷 Choisissez une image", type=["png", "jpg", "jpeg","webp"])
