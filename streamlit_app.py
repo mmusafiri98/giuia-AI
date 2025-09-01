@@ -36,8 +36,12 @@ st.markdown("<p style='text-align: center; color: #666;'>Générez vos vidéos �
 
 # ---------- SIDEBAR ----------
 st.sidebar.header("📂 Navigation")
-# Link alla pagina Text-Image
-      <a href="https://br4dskhbvzaqcdzmxgst7e.streamlit.app" target="_blank">
+
+    st.markdown("---")
+    st.markdown("**Navigation externe :**")
+    st.markdown(
+        """
+        <a href="https://br4dskhbvzaqcdzmxgst7e.streamlit.app" target="_blank">
             <button style="background: linear-gradient(135deg,#3498db,#2980b9);
                            color:white;
                            border:none;
@@ -52,6 +56,7 @@ st.sidebar.header("📂 Navigation")
         """,
         unsafe_allow_html=True
     )
+
 
 st.sidebar.header("📂 Galerie de vidéos générées")
 if st.session_state["gallery"]:
