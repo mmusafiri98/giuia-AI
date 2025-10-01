@@ -1,3 +1,10 @@
 streamlit
-gradio_client
-google-genai
+torch
+torchvision
+torchaudio
+diffusers
+transformers
+accelerate
+safetensors
+imageio[ffmpeg]
+
