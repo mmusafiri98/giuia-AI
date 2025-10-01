@@ -1,46 +1,28 @@
 import streamlit as st
-import time
-from google import genai
+from diffusers import DiffusionPipeline
+import torch
+import tempfile
 
-# Configura client
-client = genai.Client()
+st.set_page_config(page_title="Local AI Video Generator", layout="centered")
+st.title("🎬 Generatore Video Locale (Modelscope)")
 
-st.set_page_config(page_title="AI Video Generator", layout="centered")
-
-st.title("🎬 AI Video Generator con Imagen + Veo 3")
-
-prompt = st.text_area("Inserisci un prompt per il video:", "Panning wide shot of a calico kitten sleeping in the sunshine")
+prompt = st.text_area("Prompt:", "A cute cat running in the grass")
 
 if st.button("Genera Video"):
-    with st.spinner("Generazione immagine..."):
-        # Step 1: Genera immagine con Imagen
-        imagen = client.models.generate_images(
-            model="imagen-4.0-generate-001",
-            prompt=prompt,
-        )
-        img = imagen.generated_images[0].image
-        st.image(img, caption="Immagine generata con Imagen")
+    with st.spinner("Caricamento modello... (può richiedere tempo al primo avvio)"):
+        pipe = DiffusionPipeline.from_pretrained(
+            "damo-vilab/modelscope-text-to-video-synthesis",
+            torch_dtype=torch.float16,
+            variant="fp16"
+        ).to("cuda")
 
-    with st.spinner("Generazione video con Veo 3..."):
-        # Step 2: Genera video con Veo
-        operation = client.models.generate_videos(
-            model="veo-3.0-generate-001",
-            prompt=prompt,
-            image=img,
-        )
+    with st.spinner("Generazione video..."):
+        video_frames = pipe(prompt, num_inference_steps=25).frames
 
-        # Poll finché l'operazione è completata
-        while not operation.done:
-            st.info("⏳ Attendi, sto generando il video...")
-            time.sleep(10)
-            operation = client.operations.get(operation)
+        # Salva video mp4 temporaneo
+        import imageio
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+        imageio.mimwrite(temp_file.name, video_frames, fps=8)
 
-        # Step 3: Scarica video
-        video = operation.response.generated_videos[0]
-        path = "veo3_with_image_input.mp4"
-        client.files.download(file=video.video)
-        video.video.save(path)
-
-        st.success("✅ Video generato!")
-        st.video(path)
-
+        st.success("✅ Video generato")
+        st.video(temp_file.name)
