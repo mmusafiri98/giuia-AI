@@ -22,18 +22,20 @@ USERS = {
 def check_login(username, password):
     return USERS.get(username) == password
 
-# ---------- LOGIN ----------
+# ---------- SESSION STATE ----------
 if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
+if "current_model" not in st.session_state:
+    st.session_state["current_model"] = "Lightricks/ltx-video-distilled"
+if "gallery" not in st.session_state:
+    st.session_state["gallery"] = []
 
 # ---------- LOGOUT ----------
 def logout():
     st.session_state["logged_in"] = False
-    st.experimental_rerun()
-
-# ---------- SIDEBAR LOGOUT ----------
-if st.session_state.get("logged_in", False):
-    st.sidebar.button("🔒 Logout", on_click=logout)
+    st.session_state["current_model"] = "Lightricks/ltx-video-distilled"
+    # Non usare st.experimental_rerun qui direttamente: Streamlit gestisce il rerun automaticamente
+    st.success("🔒 Déconnecté avec succès ! Veuillez vous reconnecter.")
 
 # ---------- LOGIN SCREEN ----------
 if not st.session_state["logged_in"]:
@@ -46,7 +48,7 @@ if not st.session_state["logged_in"]:
         if check_login(username, password):
             st.session_state["logged_in"] = True
             st.success(f"Bienvenue {username}!")
-            st.experimental_rerun()
+            st.experimental_rerun()  # Va bene qui perché è nel callback del bottone
         else:
             st.error("Nom d'utilisateur ou mot de passe incorrect")
     st.stop()  # Blocca il resto dell'app fino al login
@@ -54,12 +56,6 @@ if not st.session_state["logged_in"]:
 # ---------- CLIENTS ----------
 PRIMARY_CLIENT = "Lightricks/ltx-video-distilled"
 FALLBACK_CLIENT = "multimodalart/wan-2-2-first-last-frame"
-
-# ---------- INIT SESSION ----------
-if "gallery" not in st.session_state:
-    st.session_state["gallery"] = []
-if "current_model" not in st.session_state:
-    st.session_state["current_model"] = PRIMARY_CLIENT
 
 # ---------- LOAD EXISTING VIDEOS ----------
 for file in os.listdir(GENERATED_DIR):
@@ -101,6 +97,9 @@ st.sidebar.markdown(
     """,
     unsafe_allow_html=True
 )
+
+# Bottone logout nella sidebar
+st.sidebar.button("🔒 Logout", on_click=logout)
 
 # Sidebar gallery
 st.sidebar.header("📂 Galerie de vidéos générées")
