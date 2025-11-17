@@ -13,14 +13,11 @@ os.makedirs(STATIC_DIR, exist_ok=True)
 GENERATED_DIR = "generated_videos"
 os.makedirs(GENERATED_DIR, exist_ok=True)
 
-# ---------- USERS (login semplice) ----------
+# ---------- USERS ----------
 USERS = {
     "admin": "password123",
     "user": "userpass"
 }
-
-def check_login(username, password):
-    return USERS.get(username) == password
 
 # ---------- SESSION STATE ----------
 if "logged_in" not in st.session_state:
@@ -32,9 +29,12 @@ if "gallery" not in st.session_state:
 
 # ---------- LOGOUT ----------
 def logout():
+    # Resetta tutti gli stati
     st.session_state["logged_in"] = False
     st.session_state["current_model"] = "Lightricks/ltx-video-distilled"
-    st.success("🔒 Déconnecté avec succès ! Veuillez vous reconnecter.")
+    st.session_state["gallery"] = []
+    st.success("🔒 Déconnecté avec succès !")
+    st.stop()  # Blocca la sessione finché non si logga di nuovo
 
 # ---------- LOGIN SCREEN ----------
 if not st.session_state["logged_in"]:
@@ -42,10 +42,10 @@ if not st.session_state["logged_in"]:
     username = st.text_input("Nom d'utilisateur")
     password = st.text_input("Mot de passe", type="password")
     if st.button("Se connecter"):
-        if check_login(username, password):
+        if USERS.get(username) == password:
             st.session_state["logged_in"] = True
             st.success(f"Bienvenue {username}!")
-            st.experimental_rerun()  # Va bene qui, perché bottone principale
+            st.experimental_rerun()  # Solo qui va bene
         else:
             st.error("Nom d'utilisateur ou mot de passe incorrect")
     st.stop()  # Blocca tutto finché l'utente non si logga
@@ -74,36 +74,12 @@ st.info(f"🤖 Modello attivo: **{current_model_name}**")
 
 # ---------- SIDEBAR ----------
 st.sidebar.header("📂 Navigation")
-st.sidebar.markdown("---")
-st.sidebar.markdown("**Navigation externe :**")
-
-st.sidebar.markdown(
-    """
-    <a href="https://br4dskhbvzaqcdzmxgst7e.streamlit.app" target="_blank">
-        <button style="background: linear-gradient(135deg,#3498db,#2980b9);
-                       color:white;
-                       border:none;
-                       padding:10px 20px;
-                       border-radius:8px;
-                       font-weight:600;
-                       cursor:pointer;
-                       width:100%;">
-            🌐 Create Video from Image with VimeoAI
-        </button>
-    </a>
-    """,
-    unsafe_allow_html=True
-)
-
-# Bottone logout nella sidebar senza experimental_rerun
 if st.sidebar.button("🔒 Logout"):
     logout()
-    st.stop()  # Ferma tutto e torna alla login
 
-# Sidebar gallery
 st.sidebar.header("📂 Galerie de vidéos générées")
 if st.session_state["gallery"]:
-    for idx, video in enumerate(st.session_state["gallery"]):
+    for video in st.session_state["gallery"]:
         st.sidebar.video(video["path"])
         st.sidebar.markdown(f"[⬇️ Télécharger {video['name']}]({video['path']})", unsafe_allow_html=True)
 else:
@@ -115,7 +91,6 @@ def generate_video_with_fallback(prompt, image_path, width, height, duration):
         (PRIMARY_CLIENT, "LTX Video", "primary"),
         (FALLBACK_CLIENT, "Wan 2.2 First-Last Frame", "wan2.2_first_last")
     ]
-    
     last_error = None
     for model_space, model_name, model_type in models_to_try:
         try:
@@ -151,7 +126,6 @@ def generate_video_with_fallback(prompt, image_path, width, height, duration):
                     randomize_seed=True,
                     api_name="/generate_video_1"
                 )
-            
             st.session_state["current_model"] = model_space
             st.success(f"✅ Video generato con successo usando **{model_name}**!")
             
@@ -171,7 +145,7 @@ def generate_video_with_fallback(prompt, image_path, width, height, duration):
     
     raise Exception(f"❌ Tutti i modelli hanno fallito. Ultimo errore: {str(last_error)}")
 
-# ---------- FORMULAIRE VIDEO ----------
+# ---------- VIDEO FORM ----------
 uploaded_file = st.file_uploader("📷 Choisissez une image", type=["png", "jpg", "jpeg","webp"])
 prompt = st.text_input("📝 Entrez une description / prompt pour la vidéo")
 col1, col2 = st.columns([1, 1])
@@ -216,5 +190,6 @@ if st.button("🚀 Générer la vidéo"):
         finally:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
+
 
 
