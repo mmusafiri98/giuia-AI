@@ -34,7 +34,6 @@ if "gallery" not in st.session_state:
 def logout():
     st.session_state["logged_in"] = False
     st.session_state["current_model"] = "Lightricks/ltx-video-distilled"
-    # Non usare st.experimental_rerun qui direttamente: Streamlit gestisce il rerun automaticamente
     st.success("🔒 Déconnecté avec succès ! Veuillez vous reconnecter.")
 
 # ---------- LOGIN SCREEN ----------
@@ -42,16 +41,14 @@ if not st.session_state["logged_in"]:
     st.title("🔐 VimeoAI - Login")
     username = st.text_input("Nom d'utilisateur")
     password = st.text_input("Mot de passe", type="password")
-    login_button = st.button("Se connecter")
-    
-    if login_button:
+    if st.button("Se connecter"):
         if check_login(username, password):
             st.session_state["logged_in"] = True
             st.success(f"Bienvenue {username}!")
-            st.experimental_rerun()  # Va bene qui perché è nel callback del bottone
+            st.experimental_rerun()  # Va bene qui, perché bottone principale
         else:
             st.error("Nom d'utilisateur ou mot de passe incorrect")
-    st.stop()  # Blocca il resto dell'app fino al login
+    st.stop()  # Blocca tutto finché l'utente non si logga
 
 # ---------- CLIENTS ----------
 PRIMARY_CLIENT = "Lightricks/ltx-video-distilled"
@@ -98,8 +95,10 @@ st.sidebar.markdown(
     unsafe_allow_html=True
 )
 
-# Bottone logout nella sidebar
-st.sidebar.button("🔒 Logout", on_click=logout)
+# Bottone logout nella sidebar senza experimental_rerun
+if st.sidebar.button("🔒 Logout"):
+    logout()
+    st.stop()  # Ferma tutto e torna alla login
 
 # Sidebar gallery
 st.sidebar.header("📂 Galerie de vidéos générées")
