@@ -4,6 +4,7 @@ import tempfile
 import shutil
 import os
 import uuid
+import hashlib
 
 # ---------- CONFIG ----------
 st.set_page_config(page_title="VimeoAI - Video Generator", page_icon="🎬", layout="centered")
@@ -13,9 +14,38 @@ os.makedirs(STATIC_DIR, exist_ok=True)
 GENERATED_DIR = "generated_videos"
 os.makedirs(GENERATED_DIR, exist_ok=True)
 
+# ---------- USERS (login semplice) ----------
+# username:password (password in chiaro -> puoi hashare)
+USERS = {
+    "admin": "password123",
+    "user": "userpass"
+}
+
+def check_login(username, password):
+    return USERS.get(username) == password
+
+# ---------- LOGIN ----------
+if "logged_in" not in st.session_state:
+    st.session_state["logged_in"] = False
+
+if not st.session_state["logged_in"]:
+    st.title("🔐 VimeoAI - Login")
+    username = st.text_input("Nom d'utilisateur")
+    password = st.text_input("Mot de passe", type="password")
+    login_button = st.button("Se connecter")
+    
+    if login_button:
+        if check_login(username, password):
+            st.session_state["logged_in"] = True
+            st.success(f"Bienvenue {username}!")
+            st.experimental_rerun()
+        else:
+            st.error("Nom d'utilisateur ou mot de passe incorrect")
+    st.stop()  # Blocca il resto dell'app se non loggato
+
 # ---------- CLIENTS ----------
 PRIMARY_CLIENT = "Lightricks/ltx-video-distilled"
-FALLBACK_CLIENT = "multimodalart/wan-2-2-first-last-frame"  # Nuovo modello di fallback
+FALLBACK_CLIENT = "multimodalart/wan-2-2-first-last-frame"
 
 # ---------- INIT SESSION ----------
 if "gallery" not in st.session_state:
@@ -28,16 +58,12 @@ for file in os.listdir(GENERATED_DIR):
     if file.endswith(".mp4"):
         video_path = os.path.join(GENERATED_DIR, file)
         if video_path not in [v["path"] for v in st.session_state["gallery"]]:
-            st.session_state["gallery"].append({
-                "path": video_path,
-                "name": file
-            })
+            st.session_state["gallery"].append({"path": video_path, "name": file})
 
 # ---------- HEADER ----------
 st.markdown("<h1 style='text-align: center; color: #4B0082;'>VimeoAI</h1>", unsafe_allow_html=True)
 st.markdown("<p style='text-align: center; color: #666;'>Générez vos vidéos à partir d'une image et d'un prompt.</p>", unsafe_allow_html=True)
 
-# Mostra il modello attualmente in uso
 model_names = {
     PRIMARY_CLIENT: "LTX Video",
     FALLBACK_CLIENT: "Wan 2.2 First-Last Frame"
@@ -50,7 +76,6 @@ st.sidebar.header("📂 Navigation")
 st.sidebar.markdown("---")
 st.sidebar.markdown("**Navigation externe :**")
 
-# Bouton verso applicazioni esterne (esempio)
 st.sidebar.markdown(
     """
     <a href="https://br4dskhbvzaqcdzmxgst7e.streamlit.app" target="_blank">
@@ -69,9 +94,9 @@ st.sidebar.markdown(
     unsafe_allow_html=True
 )
 
-# Galerie des vidéos générées
+# Sidebar gallery
 st.sidebar.header("📂 Galerie de vidéos générées")
-if "gallery" in st.session_state and st.session_state["gallery"]:
+if st.session_state["gallery"]:
     for idx, video in enumerate(st.session_state["gallery"]):
         st.sidebar.video(video["path"])
         st.sidebar.markdown(f"[⬇️ Télécharger {video['name']}]({video['path']})", unsafe_allow_html=True)
@@ -80,24 +105,18 @@ else:
 
 # ---------- FUNCTION: GENERATE VIDEO WITH FALLBACK ----------
 def generate_video_with_fallback(prompt, image_path, width, height, duration):
-    """
-    Tenta di generare un video con il modello primario.
-    Se fallisce, passa automaticamente al modello di fallback.
-    """
     models_to_try = [
         (PRIMARY_CLIENT, "LTX Video", "primary"),
         (FALLBACK_CLIENT, "Wan 2.2 First-Last Frame", "wan2.2_first_last")
     ]
     
     last_error = None
-    
     for model_space, model_name, model_type in models_to_try:
         try:
             st.info(f"🔄 Tentativo con **{model_name}**...")
             client = Client(model_space)
             
             if model_type == "primary":
-                # LTX Video API call
                 video_result, _ = client.predict(
                     prompt=prompt,
                     input_image_filepath=handle_file(image_path),
@@ -113,12 +132,11 @@ def generate_video_with_fallback(prompt, image_path, width, height, duration):
                     api_name="/image_to_video"
                 )
             elif model_type == "wan2.2_first_last":
-                # Nuovo modello di fallback
                 video_result = client.predict(
                     start_image_pil=handle_file(image_path),
                     end_image_pil=handle_file(image_path),
                     prompt=prompt,
-                    negative_prompt="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走,过曝，",
+                    negative_prompt="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量, JPEG压缩残留, 丑陋的, 残缺的, 多余的手指, 画得不好的手部, 画得不好的脸部, 畸形的, 毁容的, 形态畸形的肢体, 手指融合, 静止不动的画面, 杂乱的背景, 三条腿, 背景人很多, 倒着走, 过曝",
                     duration_seconds=duration,
                     steps=8,
                     guidance_scale=1,
@@ -128,11 +146,9 @@ def generate_video_with_fallback(prompt, image_path, width, height, duration):
                     api_name="/generate_video_1"
                 )
             
-            # Aggiorna il modello corrente
             st.session_state["current_model"] = model_space
             st.success(f"✅ Video generato con successo usando **{model_name}**!")
             
-            # Estrai il percorso del video
             if isinstance(video_result, dict) and "video" in video_result:
                 return video_result["video"]
             elif isinstance(video_result, str):
@@ -147,7 +163,6 @@ def generate_video_with_fallback(prompt, image_path, width, height, duration):
             st.warning(f"⚠️ **{model_name}** non disponibile: {str(e)}")
             continue
     
-    # Se tutti i modelli falliscono
     raise Exception(f"❌ Tutti i modelli hanno fallito. Ultimo errore: {str(last_error)}")
 
 # ---------- FORMULAIRE VIDEO ----------
@@ -167,14 +182,11 @@ if st.button("🚀 Générer la vidéo"):
         st.error("⚠️ Veuillez entrer une description pour la vidéo.")
     else:
         try:
-            # ---- TEMP IMAGE ----
             with tempfile.NamedTemporaryFile(delete=False, suffix=uploaded_file.name) as tmp_file:
                 tmp_file.write(uploaded_file.read())
                 temp_path = tmp_file.name
 
-            # ---- VIDEO GENERATION WITH FALLBACK ----
             width, height = map(int, resolution.split("x"))
-            
             with st.spinner("🎬 Génération de la vidéo en cours..."):
                 video_local_path = generate_video_with_fallback(
                     prompt=prompt,
@@ -184,16 +196,11 @@ if st.button("🚀 Générer la vidéo"):
                     duration=duration
                 )
 
-            # ---- SAVE VIDEO LOCALLY ----
             unique_name = f"{uuid.uuid4().hex}.mp4"
             save_path = os.path.join(GENERATED_DIR, unique_name)
             shutil.copy(video_local_path, save_path)
 
-            # ---- UPDATE GALLERY ----
-            st.session_state["gallery"].append({
-                "path": save_path,
-                "name": unique_name
-            })
+            st.session_state["gallery"].append({"path": save_path, "name": unique_name})
 
             st.success("✅ Vidéo générée avec succès !")
             st.video(save_path)
@@ -201,7 +208,7 @@ if st.button("🚀 Générer la vidéo"):
         except Exception as e:
             st.error(f"🚨 Erreur lors de la génération : {str(e)}")
         finally:
-            # Cleanup temp file
             if os.path.exists(temp_path):
                 os.remove(temp_path)
+
 
