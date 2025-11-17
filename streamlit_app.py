@@ -220,4 +220,3 @@ if st.button("🚀 Générer la vidéo"):
                 os.remove(temp_path)
 
 
-
