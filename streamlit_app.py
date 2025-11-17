@@ -13,12 +13,16 @@ os.makedirs(STATIC_DIR, exist_ok=True)
 GENERATED_DIR = "generated_videos"
 os.makedirs(GENERATED_DIR, exist_ok=True)
 
-# ---------- CLIENT ----------
-video_client = Client("Lightricks/ltx-video-distilled")
+# ---------- CLIENTS ----------
+PRIMARY_CLIENT = "Lightricks/ltx-video-distilled"
+FALLBACK_CLIENT_1 = "zerogpu-aoti-wan2-2-fp8da-aoti-faster"
+FALLBACK_CLIENT_2 = "dream2589632147/dream-wan2-2-faster-pro"
 
 # ---------- INIT SESSION ----------
 if "gallery" not in st.session_state:
     st.session_state["gallery"] = []
+if "current_model" not in st.session_state:
+    st.session_state["current_model"] = PRIMARY_CLIENT
 
 # ---------- LOAD EXISTING VIDEOS ----------
 for file in os.listdir(GENERATED_DIR):
@@ -33,6 +37,15 @@ for file in os.listdir(GENERATED_DIR):
 # ---------- HEADER ----------
 st.markdown("<h1 style='text-align: center; color: #4B0082;'>VimeoAI</h1>", unsafe_allow_html=True)
 st.markdown("<p style='text-align: center; color: #666;'>Générez vos vidéos à partir d'une image et d'un prompt.</p>", unsafe_allow_html=True)
+
+# Mostra il modello attualmente in uso
+model_names = {
+    PRIMARY_CLIENT: "LTX Video",
+    FALLBACK_CLIENT_1: "Wan 2.2 I2V (14B)",
+    FALLBACK_CLIENT_2: "Dream Wan 2.2 Faster Pro"
+}
+current_model_name = model_names.get(st.session_state["current_model"], "Sconosciuto")
+st.info(f"🤖 Modello attivo: **{current_model_name}**")
 
 # ---------- SIDEBAR ----------
 st.sidebar.header("📂 Navigation")
@@ -88,6 +101,81 @@ else:
     st.sidebar.info("Aucune vidéo générée pour le moment.")
 
 
+# ---------- FUNCTION: GENERATE VIDEO WITH FALLBACK ----------
+def generate_video_with_fallback(prompt, image_path, width, height, duration):
+    """
+    Tenta di generare un video con il modello primario.
+    Se fallisce, passa automaticamente ai modelli di fallback in sequenza.
+    """
+    models_to_try = [
+        (PRIMARY_CLIENT, "LTX Video"),
+        (FALLBACK_CLIENT_1, "Wan 2.2 I2V (14B)"),
+        (FALLBACK_CLIENT_2, "Dream Wan 2.2 Faster Pro")
+    ]
+    
+    # Se l'ultimo modello utilizzato era un fallback, prova quello per primo
+    current = st.session_state["current_model"]
+    if current in [FALLBACK_CLIENT_1, FALLBACK_CLIENT_2]:
+        # Riordina per provare prima il modello che ha funzionato l'ultima volta
+        for i, (model, name) in enumerate(models_to_try):
+            if model == current:
+                models_to_try.insert(0, models_to_try.pop(i))
+                break
+    
+    last_error = None
+    
+    for model_space, model_name in models_to_try:
+        try:
+            st.info(f"🔄 Tentativo con **{model_name}**...")
+            client = Client(model_space)
+            
+            if model_space == PRIMARY_CLIENT:
+                # LTX Video API call
+                video_result, _ = client.predict(
+                    prompt=prompt,
+                    input_image_filepath=handle_file(image_path),
+                    height_ui=height,
+                    width_ui=width,
+                    mode="image-to-video",
+                    duration_ui=duration,
+                    ui_frames_to_use=9,
+                    seed_ui=42,
+                    randomize_seed=True,
+                    ui_guidance_scale=1,
+                    improve_texture_flag=True,
+                    api_name="/image_to_video"
+                )
+            else:
+                # Wan 2.2 I2V API calls (entrambi i fallback usano la stessa struttura)
+                video_result = client.predict(
+                    prompt=prompt,
+                    image=handle_file(image_path),
+                    api_name="/predict"
+                )
+            
+            # Aggiorna il modello corrente
+            st.session_state["current_model"] = model_space
+            st.success(f"✅ Video generato con successo usando **{model_name}**!")
+            
+            # Estrai il percorso del video
+            if isinstance(video_result, dict) and "video" in video_result:
+                return video_result["video"]
+            elif isinstance(video_result, str):
+                return video_result
+            elif isinstance(video_result, tuple):
+                return video_result[0]
+            else:
+                raise ValueError(f"Formato risultato non riconosciuto: {type(video_result)}")
+                
+        except Exception as e:
+            last_error = e
+            st.warning(f"⚠️ **{model_name}** non disponibile: {str(e)}")
+            continue
+    
+    # Se tutti i modelli falliscono
+    raise Exception(f"❌ Tutti i modelli hanno fallito. Ultimo errore: {str(last_error)}")
+
+
 # ---------- FORMULAIRE VIDEO ----------
 uploaded_file = st.file_uploader("📷 Choisissez une image", type=["png", "jpg", "jpeg","webp"])
 prompt = st.text_input("📝 Entrez une description / prompt pour la vidéo")
@@ -110,29 +198,19 @@ if st.button("🚀 Générer la vidéo"):
                 tmp_file.write(uploaded_file.read())
                 temp_path = tmp_file.name
 
-            # ---- VIDEO GENERATION ----
+            # ---- VIDEO GENERATION WITH FALLBACK ----
             width, height = map(int, resolution.split("x"))
-            video_result, _ = video_client.predict(
-                prompt=prompt,
-                input_image_filepath=handle_file(temp_path),
-                height_ui=height,
-                width_ui=width,
-                mode="image-to-video",
-                duration_ui=duration,
-                ui_frames_to_use=9,
-                seed_ui=42,
-                randomize_seed=True,
-                ui_guidance_scale=1,
-                improve_texture_flag=True,
-                api_name="/image_to_video"
-            )
-
-            if not (isinstance(video_result, dict) and "video" in video_result):
-                st.error(f"❌ Erreur vidéo : {video_result}")
-                st.stop()
+            
+            with st.spinner("🎬 Génération de la vidéo en cours..."):
+                video_local_path = generate_video_with_fallback(
+                    prompt=prompt,
+                    image_path=temp_path,
+                    width=width,
+                    height=height,
+                    duration=duration
+                )
 
             # ---- SAVE VIDEO LOCALLY ----
-            video_local_path = video_result["video"]
             unique_name = f"{uuid.uuid4().hex}.mp4"
             save_path = os.path.join(GENERATED_DIR, unique_name)
             shutil.copy(video_local_path, save_path)
@@ -148,7 +226,10 @@ if st.button("🚀 Générer la vidéo"):
 
         except Exception as e:
             st.error(f"🚨 Erreur lors de la génération : {str(e)}")
-        
+        finally:
+            # Cleanup temp file
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
     
       
         
