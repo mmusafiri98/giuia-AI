@@ -4,7 +4,6 @@ import tempfile
 import shutil
 import os
 import uuid
-import hashlib
 
 # ---------- CONFIG ----------
 st.set_page_config(page_title="VimeoAI - Video Generator", page_icon="🎬", layout="centered")
@@ -15,7 +14,6 @@ GENERATED_DIR = "generated_videos"
 os.makedirs(GENERATED_DIR, exist_ok=True)
 
 # ---------- USERS (login semplice) ----------
-# username:password (password in chiaro -> puoi hashare)
 USERS = {
     "admin": "password123",
     "user": "userpass"
@@ -38,10 +36,10 @@ if not st.session_state["logged_in"]:
         if check_login(username, password):
             st.session_state["logged_in"] = True
             st.success(f"Bienvenue {username}!")
-            st.experimental_rerun()
+            st.experimental_rerun()  # Funziona ora perché lo stato è aggiornato
         else:
             st.error("Nom d'utilisateur ou mot de passe incorrect")
-    st.stop()  # Blocca il resto dell'app se non loggato
+    st.stop()  # Blocca il resto dell'app fino al login
 
 # ---------- CLIENTS ----------
 PRIMARY_CLIENT = "Lightricks/ltx-video-distilled"
