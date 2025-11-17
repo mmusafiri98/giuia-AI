@@ -15,8 +15,7 @@ os.makedirs(GENERATED_DIR, exist_ok=True)
 
 # ---------- CLIENTS ----------
 PRIMARY_CLIENT = "Lightricks/ltx-video-distilled"
-FALLBACK_CLIENT_1 = "zerogpu-aoti/wan2-2-fp8da-aoti-faster"  # Wan 2.2 14B Fast
-FALLBACK_CLIENT_2 = "Wan-AI/Wan-2.2-5B"  # Wan 2.2 5B (ufficiale)
+FALLBACK_CLIENT = "multimodalart/wan-2-2-first-last-frame"  # Nuovo modello di fallback
 
 # ---------- INIT SESSION ----------
 if "gallery" not in st.session_state:
@@ -41,19 +40,17 @@ st.markdown("<p style='text-align: center; color: #666;'>Générez vos vidéos �
 # Mostra il modello attualmente in uso
 model_names = {
     PRIMARY_CLIENT: "LTX Video",
-    FALLBACK_CLIENT_1: "Wan 2.2 14B Fast",
-    FALLBACK_CLIENT_2: "Wan 2.2 5B"
+    FALLBACK_CLIENT: "Wan 2.2 First-Last Frame"
 }
 current_model_name = model_names.get(st.session_state["current_model"], "Sconosciuto")
 st.info(f"🤖 Modello attivo: **{current_model_name}**")
 
 # ---------- SIDEBAR ----------
 st.sidebar.header("📂 Navigation")
-
 st.sidebar.markdown("---")
 st.sidebar.markdown("**Navigation externe :**")
 
-# Bouton vers la première app
+# Bouton verso applicazioni esterne (esempio)
 st.sidebar.markdown(
     """
     <a href="https://br4dskhbvzaqcdzmxgst7e.streamlit.app" target="_blank">
@@ -72,25 +69,6 @@ st.sidebar.markdown(
     unsafe_allow_html=True
 )
 
-# Bouton vers la deuxième app
-st.sidebar.markdown(
-    """
-    <a href="https://ntppmecv4w2uu4w9v7hxmb.streamlit.app" target="_blank">
-        <button style="background: linear-gradient(135deg,#2ecc71,#27ae60);
-                       color:white;
-                       border:none;
-                       padding:10px 20px;
-                       border-radius:8px;
-                       font-weight:600;
-                       cursor:pointer;
-                       width:100%; margin-top:10px;">
-            🌐 Autre application Streamlit
-        </button>
-    </a>
-    """,
-    unsafe_allow_html=True
-)
-
 # Galerie des vidéos générées
 st.sidebar.header("📂 Galerie de vidéos générées")
 if "gallery" in st.session_state and st.session_state["gallery"]:
@@ -100,27 +78,16 @@ if "gallery" in st.session_state and st.session_state["gallery"]:
 else:
     st.sidebar.info("Aucune vidéo générée pour le moment.")
 
-
 # ---------- FUNCTION: GENERATE VIDEO WITH FALLBACK ----------
 def generate_video_with_fallback(prompt, image_path, width, height, duration):
     """
     Tenta di generare un video con il modello primario.
-    Se fallisce, passa automaticamente ai modelli di fallback in sequenza.
+    Se fallisce, passa automaticamente al modello di fallback.
     """
     models_to_try = [
         (PRIMARY_CLIENT, "LTX Video", "primary"),
-        (FALLBACK_CLIENT_1, "Wan 2.2 14B Fast", "wan2.2_14b"),
-        (FALLBACK_CLIENT_2, "Wan 2.2 5B", "wan2.2_5b")
+        (FALLBACK_CLIENT, "Wan 2.2 First-Last Frame", "wan2.2_first_last")
     ]
-    
-    # Se l'ultimo modello utilizzato era un fallback, prova quello per primo
-    current = st.session_state["current_model"]
-    if current in [FALLBACK_CLIENT_1, FALLBACK_CLIENT_2]:
-        # Riordina per provare prima il modello che ha funzionato l'ultima volta
-        for i, (model, name, model_type) in enumerate(models_to_try):
-            if model == current:
-                models_to_try.insert(0, models_to_try.pop(i))
-                break
     
     last_error = None
     
@@ -145,30 +112,20 @@ def generate_video_with_fallback(prompt, image_path, width, height, duration):
                     improve_texture_flag=True,
                     api_name="/image_to_video"
                 )
-            elif model_type == "wan2.2_14b":
-                # Wan 2.2 14B Fast API call
+            elif model_type == "wan2.2_first_last":
+                # Nuovo modello di fallback
                 video_result = client.predict(
+                    start_image_pil=handle_file(image_path),
+                    end_image_pil=handle_file(image_path),
                     prompt=prompt,
-                    image=handle_file(image_path),
+                    negative_prompt="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走,过曝，",
+                    duration_seconds=duration,
+                    steps=8,
+                    guidance_scale=1,
+                    guidance_scale_2=1,
                     seed=42,
                     randomize_seed=True,
-                    width=width,
-                    height=height,
-                    num_inference_steps=30,
-                    guidance_scale=7.5,
-                    api_name="/generate_video"
-                )
-            elif model_type == "wan2.2_5b":
-                # Wan 2.2 5B API call (può supportare sia I2V che T2V)
-                video_result = client.predict(
-                    image=handle_file(image_path),
-                    prompt=prompt,
-                    seed=42,
-                    randomize_seed=True,
-                    width=width,
-                    height=height,
-                    num_inference_steps=30,
-                    api_name="/generate_i2v"
+                    api_name="/generate_video_1"
                 )
             
             # Aggiorna il modello corrente
@@ -181,7 +138,6 @@ def generate_video_with_fallback(prompt, image_path, width, height, duration):
             elif isinstance(video_result, str):
                 return video_result
             elif isinstance(video_result, tuple) and len(video_result) > 0:
-                # Per alcuni modelli il risultato è una tupla
                 return video_result[0] if isinstance(video_result[0], str) else video_result[0]["video"]
             else:
                 raise ValueError(f"Formato risultato non riconosciuto: {type(video_result)}")
@@ -193,7 +149,6 @@ def generate_video_with_fallback(prompt, image_path, width, height, duration):
     
     # Se tutti i modelli falliscono
     raise Exception(f"❌ Tutti i modelli hanno fallito. Ultimo errore: {str(last_error)}")
-
 
 # ---------- FORMULAIRE VIDEO ----------
 uploaded_file = st.file_uploader("📷 Choisissez une image", type=["png", "jpg", "jpeg","webp"])
@@ -249,4 +204,4 @@ if st.button("🚀 Générer la vidéo"):
             # Cleanup temp file
             if os.path.exists(temp_path):
                 os.remove(temp_path)
-        
+
