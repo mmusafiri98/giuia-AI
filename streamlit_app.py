@@ -15,8 +15,8 @@ os.makedirs(GENERATED_DIR, exist_ok=True)
 
 # ---------- CLIENTS ----------
 PRIMARY_CLIENT = "Lightricks/ltx-video-distilled"
-FALLBACK_CLIENT_1 = "zerogpu-aoti-wan2-2-fp8da-aoti-faster"
-FALLBACK_CLIENT_2 = "dream2589632147/dream-wan2-2-faster-pro"
+FALLBACK_CLIENT_1 = "zerogpu-aoti/wan2-2-fp8da-aoti-faster"  # Wan 2.2 14B Fast
+FALLBACK_CLIENT_2 = "Wan-AI/Wan-2.2-5B"  # Wan 2.2 5B (ufficiale)
 
 # ---------- INIT SESSION ----------
 if "gallery" not in st.session_state:
@@ -41,8 +41,8 @@ st.markdown("<p style='text-align: center; color: #666;'>Générez vos vidéos �
 # Mostra il modello attualmente in uso
 model_names = {
     PRIMARY_CLIENT: "LTX Video",
-    FALLBACK_CLIENT_1: "Wan 2.2 I2V (14B)",
-    FALLBACK_CLIENT_2: "Dream Wan 2.2 Faster Pro"
+    FALLBACK_CLIENT_1: "Wan 2.2 14B Fast",
+    FALLBACK_CLIENT_2: "Wan 2.2 5B"
 }
 current_model_name = model_names.get(st.session_state["current_model"], "Sconosciuto")
 st.info(f"🤖 Modello attivo: **{current_model_name}**")
@@ -108,28 +108,28 @@ def generate_video_with_fallback(prompt, image_path, width, height, duration):
     Se fallisce, passa automaticamente ai modelli di fallback in sequenza.
     """
     models_to_try = [
-        (PRIMARY_CLIENT, "LTX Video"),
-        (FALLBACK_CLIENT_1, "Wan 2.2 I2V (14B)"),
-        (FALLBACK_CLIENT_2, "Dream Wan 2.2 Faster Pro")
+        (PRIMARY_CLIENT, "LTX Video", "primary"),
+        (FALLBACK_CLIENT_1, "Wan 2.2 14B Fast", "wan2.2_14b"),
+        (FALLBACK_CLIENT_2, "Wan 2.2 5B", "wan2.2_5b")
     ]
     
     # Se l'ultimo modello utilizzato era un fallback, prova quello per primo
     current = st.session_state["current_model"]
     if current in [FALLBACK_CLIENT_1, FALLBACK_CLIENT_2]:
         # Riordina per provare prima il modello che ha funzionato l'ultima volta
-        for i, (model, name) in enumerate(models_to_try):
+        for i, (model, name, model_type) in enumerate(models_to_try):
             if model == current:
                 models_to_try.insert(0, models_to_try.pop(i))
                 break
     
     last_error = None
     
-    for model_space, model_name in models_to_try:
+    for model_space, model_name, model_type in models_to_try:
         try:
             st.info(f"🔄 Tentativo con **{model_name}**...")
             client = Client(model_space)
             
-            if model_space == PRIMARY_CLIENT:
+            if model_type == "primary":
                 # LTX Video API call
                 video_result, _ = client.predict(
                     prompt=prompt,
@@ -145,12 +145,30 @@ def generate_video_with_fallback(prompt, image_path, width, height, duration):
                     improve_texture_flag=True,
                     api_name="/image_to_video"
                 )
-            else:
-                # Wan 2.2 I2V API calls (entrambi i fallback usano la stessa struttura)
+            elif model_type == "wan2.2_14b":
+                # Wan 2.2 14B Fast API call
                 video_result = client.predict(
                     prompt=prompt,
                     image=handle_file(image_path),
-                    api_name="/predict"
+                    seed=42,
+                    randomize_seed=True,
+                    width=width,
+                    height=height,
+                    num_inference_steps=30,
+                    guidance_scale=7.5,
+                    api_name="/generate_video"
+                )
+            elif model_type == "wan2.2_5b":
+                # Wan 2.2 5B API call (può supportare sia I2V che T2V)
+                video_result = client.predict(
+                    image=handle_file(image_path),
+                    prompt=prompt,
+                    seed=42,
+                    randomize_seed=True,
+                    width=width,
+                    height=height,
+                    num_inference_steps=30,
+                    api_name="/generate_i2v"
                 )
             
             # Aggiorna il modello corrente
@@ -162,8 +180,9 @@ def generate_video_with_fallback(prompt, image_path, width, height, duration):
                 return video_result["video"]
             elif isinstance(video_result, str):
                 return video_result
-            elif isinstance(video_result, tuple):
-                return video_result[0]
+            elif isinstance(video_result, tuple) and len(video_result) > 0:
+                # Per alcuni modelli il risultato è una tupla
+                return video_result[0] if isinstance(video_result[0], str) else video_result[0]["video"]
             else:
                 raise ValueError(f"Formato risultato non riconosciuto: {type(video_result)}")
                 
@@ -230,6 +249,4 @@ if st.button("🚀 Générer la vidéo"):
             # Cleanup temp file
             if os.path.exists(temp_path):
                 os.remove(temp_path)
-    
-      
         
