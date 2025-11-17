@@ -26,6 +26,16 @@ def check_login(username, password):
 if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
 
+# ---------- LOGOUT ----------
+def logout():
+    st.session_state["logged_in"] = False
+    st.experimental_rerun()
+
+# ---------- SIDEBAR LOGOUT ----------
+if st.session_state.get("logged_in", False):
+    st.sidebar.button("🔒 Logout", on_click=logout)
+
+# ---------- LOGIN SCREEN ----------
 if not st.session_state["logged_in"]:
     st.title("🔐 VimeoAI - Login")
     username = st.text_input("Nom d'utilisateur")
@@ -36,7 +46,7 @@ if not st.session_state["logged_in"]:
         if check_login(username, password):
             st.session_state["logged_in"] = True
             st.success(f"Bienvenue {username}!")
-            st.experimental_rerun()  # Funziona ora perché lo stato è aggiornato
+            st.experimental_rerun()
         else:
             st.error("Nom d'utilisateur ou mot de passe incorrect")
     st.stop()  # Blocca il resto dell'app fino al login
@@ -208,5 +218,6 @@ if st.button("🚀 Générer la vidéo"):
         finally:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
+
 
 
