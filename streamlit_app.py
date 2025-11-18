@@ -33,8 +33,7 @@ def logout():
     st.session_state["logged_in"] = False
     st.session_state["current_model"] = "Lightricks/ltx-video-distilled"
     st.session_state["gallery"] = []
-    st.success("🔒 Déconnecté avec succès !")
-    st.stop()  # Blocca la sessione finché non si logga di nuovo
+    st.rerun()  # Usa st.rerun() invece di st.experimental_rerun()
 
 # ---------- LOGIN SCREEN ----------
 if not st.session_state["logged_in"]:
@@ -45,7 +44,7 @@ if not st.session_state["logged_in"]:
         if USERS.get(username) == password:
             st.session_state["logged_in"] = True
             st.success(f"Bienvenue {username}!")
-            st.experimental_rerun()  # Solo qui va bene
+            st.rerun()  # Usa st.rerun() invece di st.experimental_rerun()
         else:
             st.error("Nom d'utilisateur ou mot de passe incorrect")
     st.stop()  # Blocca tutto finché l'utente non si logga
@@ -83,7 +82,7 @@ if st.session_state["gallery"]:
         st.sidebar.video(video["path"])
         st.sidebar.markdown(f"[⬇️ Télécharger {video['name']}]({video['path']})", unsafe_allow_html=True)
 else:
-    st.sidebar.info("Aucune vidéo générée pour le moment.")
+    st.sidebar.info("Aucune vidéo générée pour le momento.")
 
 # ---------- FUNCTION: GENERATE VIDEO WITH FALLBACK ----------
 def generate_video_with_fallback(prompt, image_path, width, height, duration):
