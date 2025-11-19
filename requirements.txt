@@ -8,3 +8,4 @@ accelerate
 safetensors
 imageio[ffmpeg]
 gradio_client
+psycopg2-binary
