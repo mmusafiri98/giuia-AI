@@ -33,11 +33,11 @@ FALLBACK_CLIENT = "multimodalart/wan-2-2-first-last-frame"
 def get_db_connection():
     try:
         conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
-        print("✅ DB connection established")
         return conn
     except Exception as e:
         print(f"❌ DB connection error: {e}")
         return None
+
 
 def init_database():
     conn = get_db_connection()
@@ -46,7 +46,6 @@ def init_database():
         return
     try:
         cur = conn.cursor()
-        # users table
         cur.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id SERIAL PRIMARY KEY,
@@ -56,7 +55,6 @@ def init_database():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
-        # video_generate table
         cur.execute("""
             CREATE TABLE IF NOT EXISTS video_generate (
                 id SERIAL PRIMARY KEY,
@@ -67,7 +65,6 @@ def init_database():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
-        # user_reset_password table
         cur.execute("""
             CREATE TABLE IF NOT EXISTS user_reset_password (
                 id SERIAL PRIMARY KEY,
@@ -81,7 +78,6 @@ def init_database():
         conn.commit()
         cur.close()
         conn.close()
-        print("✅ DB initialized successfully")
     except Exception as e:
         print(f"❌ DB init error: {e}")
         try:
@@ -93,16 +89,17 @@ def init_database():
 init_database()
 
 # ==============================================================
-# AUTH HELPERS
+# AUTH
 # ==============================================================
 def hash_password(pwd):
     return hashlib.sha256(pwd.encode()).hexdigest()
+
 
 def register_user(username, email, password):
     if not username or not email or not password:
         return False, "❌ Remplissez tous les champs!"
     if len(password) < 6:
-        return False, "❌ Mot de passe trop corto!"
+        return False, "❌ Mot de passe troppo corto!"
 
     conn = get_db_connection()
     if not conn:
@@ -127,6 +124,7 @@ def register_user(username, email, password):
         conn.close()
         return False, str(e)
 
+
 def login_user(username, password):
     conn = get_db_connection()
     if not conn:
@@ -146,6 +144,7 @@ def login_user(username, password):
     except Exception as e:
         conn.close()
         return None, str(e)
+
 
 def request_password_reset(email):
     conn = get_db_connection()
@@ -168,6 +167,7 @@ def request_password_reset(email):
         return True, f"✅ Token generato (mostrare in prod via email): {token}"
     except Exception as e:
         conn.close(); return False, str(e)
+
 
 def reset_password(token, newpass):
     if len(newpass) < 6:
@@ -196,31 +196,64 @@ def reset_password(token, newpass):
 # ==============================================================
 # VIDEO HELPERS
 # ==============================================================
-def save_video_to_db(user_id, prompt, video_path, image_url=None):
-    """Salva il video nella tabella video_generate con debug dettagliato"""
+def user_exists(user_id):
+    """Verifica che l'user esista (evita FK error)"""
     conn = get_db_connection()
     if not conn:
-        print("❌ No DB connection for save_video_to_db")
         return False
     try:
         cur = conn.cursor()
-        print(f"🔹 Saving video: user_id={user_id}, prompt='{prompt[:30]}...', video_path={video_path}")
-        cur.execute(
-            "INSERT INTO video_generate (user_id, prompt, video_url, image_url) VALUES (%s, %s, %s, %s) RETURNING id",
-            (user_id, prompt, video_path, image_url)
-        )
+        cur.execute("SELECT 1 FROM users WHERE id=%s", (user_id,))
+        res = cur.fetchone()
+        cur.close(); conn.close()
+        return res is not None
+    except Exception as e:
+        try: conn.close()
+        except: pass
+        print("❌ user_exists error:", e)
+        return False
+
+def save_video_to_db(user_id, prompt, video_path):
+    """Inserisce una riga nella tabella video_generate e logga l'errore SQL se presente.
+       Restituisce (True, None) se ok, altrimenti (False, error_message).
+    """
+    # controllo preliminare: user esiste?
+    if not user_exists(user_id):
+        msg = f"❌ user_id {user_id} non trovato nella tabella users."
+        print(msg)
+        return False, msg
+
+    conn = get_db_connection()
+    if not conn:
+        msg = "❌ Connessione DB fallita"
+        print(msg)
+        return False, msg
+
+    try:
+        cur = conn.cursor()
+        sql = "INSERT INTO video_generate (user_id, prompt, video_url) VALUES (%s, %s, %s) RETURNING id"
+        params = (user_id, prompt, video_path)
+        print("DEBUG -> Eseguo SQL:", sql, params)
+        cur.execute(sql, params)
         vid_id = cur.fetchone()[0]
         conn.commit()
         cur.close(); conn.close()
         print(f"✅ Video saved to DB (id={vid_id})")
-        return True
+        return True, None
     except Exception as e:
-        print(f"❌ save_video_to_db error: {e}")
+        # cattura l'errore SQL esatto e lo stampa (mostralo anche all'utente)
+        err_text = str(e)
+        print("❌ save_video_to_db error:", err_text)
         print(traceback.format_exc())
-        try: conn.rollback()
-        except: pass
-        conn.close()
-        return False
+        try:
+            conn.rollback()
+        except:
+            pass
+        try:
+            conn.close()
+        except:
+            pass
+        return False, err_text
 
 def get_user_videos(user_id, limit=50):
     conn = get_db_connection()
@@ -236,7 +269,9 @@ def get_user_videos(user_id, limit=50):
         return [dict(r) for r in rows]
     except Exception as e:
         print(f"❌ get_user_videos error: {e}")
-        conn.close(); return []
+        try: conn.close()
+        except: pass
+        return []
 
 def is_url(s):
     return isinstance(s, str) and (s.startswith('http://') or s.startswith('https://'))
@@ -260,6 +295,7 @@ def download_video_to_path(source, dest_path, timeout=60):
         if isinstance(source, str) and os.path.exists(source):
             shutil.copy2(source, dest_path)
             return True
+
         if is_url(source):
             with requests.get(source, stream=True, timeout=timeout) as r:
                 if r.status_code != 200:
@@ -270,6 +306,7 @@ def download_video_to_path(source, dest_path, timeout=60):
                         if chunk:
                             f.write(chunk)
             return True
+
         print("❌ Source non valida per il download:", source)
         return False
     except Exception as e:
@@ -283,10 +320,12 @@ def generate_video_with_fallback(prompt, image_path, width, height, duration):
         (FALLBACK_CLIENT, "Wan 2.2 First-Last Frame", "wan2.2_first_last")
     ]
     last_error = None
+
     for model_space, model_name, model_type in models_to_try:
         try:
             st.info(f"🔄 Tentative avec **{model_name}**...")
             client = Client(model_space)
+
             if model_type == "primary":
                 video_result = client.predict(
                     prompt=prompt,
@@ -316,20 +355,25 @@ def generate_video_with_fallback(prompt, image_path, width, height, duration):
                     randomize_seed=True,
                     api_name="/generate_video_1"
                 )
+
             st.session_state['current_model'] = model_space
             st.success(f"✅ Vidéo générée avec {model_name}.")
+
+            # estrai possibile path o URL
             extracted = extract_video_path(video_result)
             print("DEBUG - extracted:", extracted)
             if extracted:
                 return extracted
             else:
                 raise ValueError("Format de résultat non reconnu: no path/url")
+
         except Exception as e:
             last_error = e
             print(f"❌ {model_name} error: {e}")
             print(traceback.format_exc())
             st.warning(f"⚠️ {model_name} non disponible: {str(e)}")
             continue
+
     raise Exception(f"❌ Tous les modèles ont échoué. Dernière erreur: {str(last_error)}")
 
 # ==============================================================
@@ -347,3 +391,128 @@ def logout():
     st.session_state['page'] = 'login'
     st.session_state['last_generated_video'] = None
     st.rerun()
+
+# ==============================================================
+# UI PAGES
+# ==============================================================
+
+def render_login():
+    st.markdown("<h1 style='text-align: center; color: #4B0082;'>🔐 VimeoAI - Connexion</h1>", unsafe_allow_html=True)
+    username = st.text_input("Nom d'utilisateur", key="login_username")
+    password = st.text_input("Mot de passe", type="password", key="login_password")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Se connecter", use_container_width=True, key="btn_login"):
+            user, message = login_user(username, password)
+            if user:
+                st.session_state['logged_in'] = True
+                st.session_state['user'] = user
+                st.session_state['page'] = 'app'
+                st.success(message)
+                st.rerun()
+            else:
+                st.error(message)
+
+    with col2:
+        if st.button("Créer un compte", use_container_width=True, key="btn_goto_register"):
+            st.session_state['page'] = 'register'
+            st.rerun()
+
+    if st.button("Mot de passe oublié?", key="btn_goto_forgot"):
+        st.session_state['page'] = 'forgot_password'
+        st.rerun()
+
+def render_register():
+    st.markdown("<h1 style='text-align: center; color: #4B0082;'>📝 Créer un compte</h1>", unsafe_allow_html=True)
+    new_username = st.text_input("Nom d'utilisateur", key="reg_username")
+    new_email = st.text_input("Email", key="reg_email")
+    new_password = st.text_input("Mot de passe", type="password", key="reg_password")
+    confirm_password = st.text_input("Confirmer le mot de passe", type="password", key="reg_confirm_password")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("S'inscrire", use_container_width=True, key="btn_register"):
+            if new_password != confirm_password:
+                st.error("❌ Les mots de passe ne correspondent pas!")
+            else:
+                success, message = register_user(new_username, new_email, new_password)
+                if success:
+                    st.success(message)
+                    st.info("Vous pouvez maintenant vous connecter.")
+                    st.session_state['page'] = 'login'
+                    st.rerun()
+                else:
+                    st.error(message)
+    with col2:
+        if st.button("Retour", use_container_width=True, key="btn_register_back"):
+            st.session_state['page'] = 'login'
+            st.rerun()
+
+def render_forgot_password():
+    st.markdown("<h1 style='text-align: center; color: #4B0082;'>🔑 Réinitialiser le mot de passe</h1>", unsafe_allow_html=True)
+    tab1, tab2 = st.tabs(["Demander un token", "Réinitialiser avec token"]) 
+
+    with tab1:
+        email = st.text_input("Votre email pour recevoir le token", key="forgot_email")
+        if st.button("Envoyer le token", key="btn_send_token"):
+            success, message = request_password_reset(email)
+            if success:
+                st.success(message)
+            else:
+                st.error(message)
+
+    with tab2:
+        reset_token = st.text_input("Token de réinitialisation", key="reset_token")
+        new_pass = st.text_input("Nouveau mot de passe", type="password", key="reset_new_pass")
+        confirm_pass = st.text_input("Confirmer le mot de passe", type="password", key="reset_confirm_pass")
+        if st.button("Réinitialiser", key="btn_reset_password"):
+            if new_pass != confirm_pass:
+                st.error("❌ Les mots de passe ne correspondent pas!")
+            else:
+                success, message = reset_password(reset_token, new_pass)
+                if success:
+                    st.success(message)
+                    st.session_state['page'] = 'login'
+                    st.rerun()
+                else:
+                    st.error(message)
+
+    if st.button("Retour à la connexion", key="btn_back_to_login"):
+        st.session_state['page'] = 'login'
+        st.rerun()
+
+def render_app():
+    user = st.session_state.get('user')
+    if not user:
+        st.session_state['page'] = 'login'
+        st.rerun()
+        return
+
+    st.markdown("<h1 style='text-align: center; color: #4B0082;'>🎬 VimeoAI</h1>", unsafe_allow_html=True)
+    st.markdown(f"<p style='text-align: center; color: #666;'>Bienvenue **{user['username']}**!</p>", unsafe_allow_html=True)
+
+    model_names = {PRIMARY_CLIENT: "LTX Video", FALLBACK_CLIENT: "Wan 2.2 First-Last Frame"}
+    current_model_name = model_names.get(st.session_state['current_model'], "Inconnu")
+    st.info(f"🤖 Modèle actif: **{current_model_name}**")
+
+    # Sidebar
+    st.sidebar.header(f"👤 {user['username']}")
+    if st.sidebar.button("🔒 Déconnexion", key="sidebar_logout"):
+        logout()
+
+    st.sidebar.markdown("---")
+    st.sidebar.header("📂 Vos vidéos générées")
+
+    user_videos = get_user_videos(user['id'])
+    if user_videos:
+        for video in user_videos:
+            vpath = video.get('video_url')
+            if vpath and os.path.exists(vpath):
+                with st.sidebar:
+                    st.video(vpath)
+                    st.markdown(f"**Prompt:** {video['prompt'][:50]}...")
+                    st.markdown(f"*{video['created_at']}*")
+                    st.markdown("---")
+            else:
+                st.sidebar.warning(f"⚠️ Vidéo listée ma
