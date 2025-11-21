@@ -63,6 +63,7 @@ def init_database():
                 image_url TEXT,
                 video_url TEXT NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                user TEXT NOT NULL,
             );
         """)
         cur.execute("""
