@@ -21,10 +21,8 @@ os.makedirs(STATIC_DIR, exist_ok=True)
 GENERATED_DIR = "generated_videos"
 os.makedirs(GENERATED_DIR, exist_ok=True)
 
-# Remplace cette chaine par ta vraie URL de production si nécessaire
 DATABASE_URL = "postgresql://neondb_owner:npg_b3qwDlLzV9YO@ep-icy-tooth-adi815w9-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require"
 
-# Clients vidéo (identifiants de modèle pour gradio-client)
 PRIMARY_CLIENT = "Lightricks/ltx-video-distilled"
 FALLBACK_CLIENT = "multimodalart/wan-2-2-first-last-frame"
 
@@ -92,14 +90,13 @@ def init_database():
             conn.close()
         return False
 
-# Initialise la DB au démarrage
 init_database()
 
 # ===================================================================
 # Utilitaires & Auth
 # ===================================================================
 def hash_password(password: str) -> str:
-    """Hash password simple SHA256 (ok pour prototype; en prod utilisez bcrypt)"""
+    """Hash password simple SHA256"""
     return hashlib.sha256(password.encode('utf-8')).hexdigest()
 
 def register_user(username, email, password):
@@ -161,7 +158,7 @@ def login_user(username, password):
         return None, f"❌ Erreur: {str(e)}"
 
 def request_password_reset(email):
-    """Générer un token de reset (stocké en base). En prod -> envoyer par email."""
+    """Générer un token de reset"""
     conn = get_db_connection()
     if not conn:
         return False, "❌ Erreur de connexion à la base de données!"
@@ -182,7 +179,6 @@ def request_password_reset(email):
         conn.commit()
         cur.close()
         conn.close()
-        # NOTE: en production, envoyez le token par email plutôt que d'afficher au user
         return True, f"✅ Token généré: `{reset_token}` (valide 1 heure)"
     except Exception as e:
         if conn:
@@ -190,7 +186,7 @@ def request_password_reset(email):
         return False, f"❌ Erreur: {str(e)}"
 
 def reset_password(reset_token, new_password):
-    """Réinitialiser mot de passe à partir d'un token"""
+    """Réinitialiser mot de passe"""
     if len(new_password) < 6:
         return False, "❌ Le mot de passe doit contenir au moins 6 caractères!"
     conn = get_db_connection()
@@ -246,6 +242,7 @@ def save_video_to_db(user_id, prompt, video_path):
         conn.commit()
         cur.close()
         conn.close()
+        print(f"✅ Video salvata in DB: {video_path}")
         return True
     except Exception as e:
         if conn:
@@ -274,19 +271,70 @@ def get_user_videos(user_id, limit=50):
         print(f"❌ Erreur get_user_videos: {e}")
         return []
 
+def extract_video_path(result):
+    """Estrae il path del video dal risultato dell'API"""
+    print(f"🔍 Tipo risultato: {type(result)}")
+    print(f"🔍 Contenuto risultato: {result}")
+    
+    # Caso 1: è già una stringa (path)
+    if isinstance(result, str):
+        if os.path.exists(result):
+            print(f"✅ Path diretto trovato: {result}")
+            return result
+        print(f"⚠️ Path non esiste: {result}")
+        return None
+    
+    # Caso 2: è un dizionario
+    if isinstance(result, dict):
+        # Prova varie chiavi comuni
+        for key in ['video', 'path', 'file', 'output', 'video_path']:
+            if key in result:
+                path = result[key]
+                if isinstance(path, str) and os.path.exists(path):
+                    print(f"✅ Path trovato in dict['{key}']: {path}")
+                    return path
+        print(f"⚠️ Nessun path valido trovato nel dict")
+        return None
+    
+    # Caso 3: è una tupla
+    if isinstance(result, tuple):
+        for i, item in enumerate(result):
+            print(f"🔍 Elemento tupla [{i}]: {type(item)} = {item}")
+            # Prova ricorsivamente ogni elemento
+            path = extract_video_path(item)
+            if path:
+                return path
+        print(f"⚠️ Nessun path valido trovato nella tupla")
+        return None
+    
+    # Caso 4: è una lista
+    if isinstance(result, list):
+        for i, item in enumerate(result):
+            print(f"🔍 Elemento lista [{i}]: {type(item)} = {item}")
+            path = extract_video_path(item)
+            if path:
+                return path
+        print(f"⚠️ Nessun path valido trovato nella lista")
+        return None
+    
+    print(f"❌ Tipo di risultato non gestito: {type(result)}")
+    return None
+
 def generate_video_with_fallback(prompt, image_path, width, height, duration):
-    """Tente le modèle primary, puis fallback en cas d'erreur"""
+    """Tenta il modèle primary, puis fallback en cas d'erreur"""
     models_to_try = [
         (PRIMARY_CLIENT, "LTX Video", "primary"),
         (FALLBACK_CLIENT, "Wan 2.2 First-Last Frame", "wan2.2_first_last")
     ]
     last_error = None
+    
     for model_space, model_name, model_type in models_to_try:
         try:
             st.info(f"🔄 Tentative avec **{model_name}**...")
             client = Client(model_space)
+            
             if model_type == "primary":
-                video_result, _ = client.predict(
+                video_result = client.predict(
                     prompt=prompt,
                     input_image_filepath=handle_file(image_path),
                     height_ui=height,
@@ -315,26 +363,24 @@ def generate_video_with_fallback(prompt, image_path, width, height, duration):
                     api_name="/generate_video_1"
                 )
 
-            st.session_state["current_model"] = model_space
-            st.success(f"✅ Vidéo générée avec {model_name}.")
-
-            # Normalisation des formats de retour possibles
-            if isinstance(video_result, dict) and "video" in video_result:
-                return video_result["video"]
-            elif isinstance(video_result, str):
-                return video_result
-            elif isinstance(video_result, tuple) and len(video_result) > 0:
-                first = video_result[0]
-                if isinstance(first, str):
-                    return first
-                elif isinstance(first, dict) and "video" in first:
-                    return first["video"]
-            raise ValueError("Format de résultat non reconnu.")
+            # Estrai il path del video
+            video_path = extract_video_path(video_result)
+            
+            if video_path and os.path.exists(video_path):
+                st.session_state["current_model"] = model_space
+                st.success(f"✅ Vidéo générée avec {model_name}.")
+                return video_path
+            else:
+                raise ValueError(f"Path video non valido o file non trovato: {video_path}")
+                
         except Exception as e:
             last_error = e
-            st.warning(f"⚠️ {model_name} non disponible: {str(e)}")
-            # continuer vers le modèle suivant
+            error_msg = str(e)
+            print(f"❌ Errore con {model_name}: {error_msg}")
+            print(traceback.format_exc())
+            st.warning(f"⚠️ {model_name} non disponible: {error_msg}")
             continue
+    
     raise Exception(f"❌ Tous les modèles ont échoué. Dernière erreur: {str(last_error)}")
 
 # ===================================================================
@@ -348,6 +394,8 @@ if "current_model" not in st.session_state:
     st.session_state["current_model"] = PRIMARY_CLIENT
 if "page" not in st.session_state:
     st.session_state["page"] = "login"
+if "last_generated_video" not in st.session_state:
+    st.session_state["last_generated_video"] = None
 
 # ===================================================================
 # Logout helper
@@ -356,7 +404,7 @@ def logout():
     st.session_state["logged_in"] = False
     st.session_state["user"] = None
     st.session_state["page"] = "login"
-    # utilise st.rerun() => correct pour les versions récentes de Streamlit
+    st.session_state["last_generated_video"] = None
     st.rerun()
 
 # ===================================================================
@@ -451,7 +499,6 @@ def render_forgot_password():
 def render_app():
     user = st.session_state.get("user")
     if not user:
-        # si user non initialisé, renvoyer vers login (mais sans boucle infinie)
         st.session_state["page"] = "login"
         st.rerun()
         return
@@ -478,14 +525,24 @@ def render_app():
     if user_videos:
         for video in user_videos:
             if video.get('video_url') and os.path.exists(video['video_url']):
-                st.sidebar.video(video['video_url'])
-                st.sidebar.markdown(f"**Prompt:** {video['prompt'][:50]}...")
-                st.sidebar.markdown(f"*{video['created_at']}*")
-                st.sidebar.markdown("---")
+                with st.sidebar:
+                    st.video(video['video_url'])
+                    st.markdown(f"**Prompt:** {video['prompt'][:50]}...")
+                    st.markdown(f"*{video['created_at']}*")
+                    st.markdown("---")
             else:
-                st.sidebar.info("Une vidéo listée mais fichier manquant.")
+                st.sidebar.warning(f"⚠️ Vidéo listée mais fichier manquant: {video.get('video_url', 'N/A')}")
+    else:
+        st.sidebar.info("Aucune vidéo générée pour le moment.")
 
     st.markdown("### 🎨 Générer une nouvelle vidéo")
+    
+    # Mostra l'ultimo video generato se esiste
+    if st.session_state.get("last_generated_video") and os.path.exists(st.session_state["last_generated_video"]):
+        st.success("✅ Dernière vidéo générée:")
+        st.video(st.session_state["last_generated_video"])
+        st.markdown("---")
+    
     uploaded_file = st.file_uploader("📷 Choisissez une image", type=["png", "jpg", "jpeg", "webp"], key="upload_img")
     prompt = st.text_input("📝 Entrez une description pour la vidéo", key="video_prompt")
 
@@ -503,15 +560,16 @@ def render_app():
         else:
             temp_path = None
             try:
-                # sauvegarde temporaire de l'image uploadée
+                # Salva temporaneamente l'immagine
                 suffix = os.path.splitext(uploaded_file.name)[1] if uploaded_file.name else ".png"
                 with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
                     tmp_file.write(uploaded_file.read())
                     temp_path = tmp_file.name
 
                 width, height = map(int, resolution.split("x"))
+                
                 with st.spinner("🎬 Génération en cours..."):
-                    video_local_path = generate_video_with_fallback(
+                    video_source_path = generate_video_with_fallback(
                         prompt=prompt,
                         image_path=temp_path,
                         width=width,
@@ -519,46 +577,49 @@ def render_app():
                         duration=duration
                     )
 
+                # Crea un nome unico per il video
                 unique_name = f"{uuid.uuid4().hex}.mp4"
                 save_path = os.path.join(GENERATED_DIR, unique_name)
 
-                # Si le modèle renvoie un chemin local, on copie ; si c'est une URL, on l'écrit comme référence
-                if isinstance(video_local_path, str) and os.path.exists(video_local_path):
-                    shutil.copy(video_local_path, save_path)
+                # Copia il video nella directory definitiva
+                if video_source_path and os.path.exists(video_source_path):
+                    print(f"📁 Copia video da {video_source_path} a {save_path}")
+                    shutil.copy2(video_source_path, save_path)
+                    
+                    # Verifica che la copia sia andata a buon fine
+                    if os.path.exists(save_path):
+                        file_size = os.path.getsize(save_path)
+                        print(f"✅ Video copiato con successo! Dimensione: {file_size} bytes")
+                        
+                        # Salva nel database
+                        if save_video_to_db(user['id'], prompt, save_path):
+                            st.session_state["last_generated_video"] = save_path
+                            st.success("✅ Vidéo générée avec succès!")
+                            st.video(save_path)
+                            
+                            # Ricarica la pagina per aggiornare la galleria
+                            st.rerun()
+                        else:
+                            st.error("❌ Erreur lors de la sauvegarde dans la base de données!")
+                    else:
+                        st.error("❌ Erreur lors de la copie du fichier vidéo!")
                 else:
-                    # si le retour n'est pas un fichier local, on sauvegarde la chaîne (au minimum)
-                    with open(save_path, "wb") as f:
-                        # si video_local_path est une URL (str), on stocke l'URL comme bytes
-                        try:
-                            f.write(video_local_path.encode('utf-8'))
-                        except Exception:
-                            # en cas d'objet non convertible, on écrit un message
-                            f.write(b"UNSUPPORTED_VIDEO_RESULT_FORMAT")
-
-                save_video_to_db(user['id'], prompt, save_path)
-                st.success("✅ Vidéo générée avec succès!")
-                # tentative de lecture — si le fichier contient une URL (texte), video() échouera,
-                # mais c'est acceptable en environnement de debug. En prod, téléchargez l'URL.
-                try:
-                    st.video(save_path)
-                except Exception:
-                    st.info(f"Vidéo disponible localement: {save_path}")
-
-                # recharger pour afficher la nouvelle vidéo dans la sidebar
-                st.rerun()
+                    st.error(f"❌ Fichier vidéo source invalide: {video_source_path}")
 
             except Exception as e:
                 st.error(f"🚨 Erreur: {str(e)}")
                 st.error(traceback.format_exc())
             finally:
+                # Pulisci il file temporaneo
                 try:
                     if temp_path and os.path.exists(temp_path):
                         os.remove(temp_path)
-                except Exception:
-                    pass
+                        print(f"🧹 File temporaneo rimosso: {temp_path}")
+                except Exception as e:
+                    print(f"⚠️ Errore rimozione file temp: {e}")
 
 # ===================================================================
-# Router principal
+# Router principale
 # ===================================================================
 page = st.session_state.get("page", "login")
 if page == "login":
@@ -570,7 +631,5 @@ elif page == "forgot_password":
 elif page == "app":
     render_app()
 else:
-    # si page inconnue -> revenir au login (sans boucle infini)
     st.session_state["page"] = "login"
     render_login()
-
