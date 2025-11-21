@@ -11,39 +11,37 @@ import secrets
 from datetime import datetime, timedelta
 import traceback
 
-# ===================================================================
-# Configuration
-# ===================================================================
+# ==============================================================
+# CONFIG
+# ==============================================================
 st.set_page_config(page_title="VimeoAI - Video Generator", page_icon="🎬", layout="centered")
 
-STATIC_DIR = "static"
+BASE_DIR = os.getcwd()
+STATIC_DIR = os.path.join(BASE_DIR, "static")
+GENERATED_DIR = os.path.join(BASE_DIR, "generated_videos")
 os.makedirs(STATIC_DIR, exist_ok=True)
-GENERATED_DIR = "generated_videos"
 os.makedirs(GENERATED_DIR, exist_ok=True)
 
 DATABASE_URL = "postgresql://neondb_owner:npg_b3qwDlLzV9YO@ep-icy-tooth-adi815w9-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require"
-
 PRIMARY_CLIENT = "Lightricks/ltx-video-distilled"
 FALLBACK_CLIENT = "multimodalart/wan-2-2-first-last-frame"
 
-# ===================================================================
-# Database helpers
-# ===================================================================
+# ==============================================================
+# DATABASE
+# ==============================================================
 def get_db_connection():
-    """Connexion à PostgreSQL (Neon)"""
     try:
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
         return conn
     except Exception as e:
-        print(f"❌ Erreur connexion DB: {e}")
+        print(f"❌ DB connection error: {e}")
         return None
 
 def init_database():
-    """Créer les tables si elles n'existent pas"""
     conn = get_db_connection()
     if not conn:
-        print("❌ Impossible de se connecter à la DB pour init.")
-        return False
+        print("❌ Cannot connect for DB init.")
+        return
     try:
         cur = conn.cursor()
         cur.execute("""
@@ -78,263 +76,166 @@ def init_database():
         conn.commit()
         cur.close()
         conn.close()
-        print("✅ DB initialisée.")
-        return True
     except Exception as e:
-        print(f"❌ Erreur init DB: {e}")
-        try:
-            conn.rollback()
-        except:
-            pass
-        if conn:
-            conn.close()
-        return False
+        print(f"❌ DB init error: {e}")
+        try: conn.rollback()
+        except: pass
+        conn.close()
 
 init_database()
 
-# ===================================================================
-# Utilitaires & Auth
-# ===================================================================
-def hash_password(password: str) -> str:
-    """Hash password simple SHA256"""
-    return hashlib.sha256(password.encode('utf-8')).hexdigest()
+# ==============================================================
+# AUTH
+# ==============================================================
+def hash_password(pwd): return hashlib.sha256(pwd.encode()).hexdigest()
 
 def register_user(username, email, password):
-    """Enregistrer un nouvel utilisateur"""
     if not username or not email or not password:
-        return False, "❌ Tous les champs sont obligatoires!"
+        return False, "❌ Remplissez tous les champs!"
     if len(password) < 6:
-        return False, "❌ Le mot de passe doit contenir au moins 6 caractères!"
+        return False, "❌ Mot de passe trop court!"
+
     conn = get_db_connection()
     if not conn:
-        return False, "❌ Erreur de connexion à la base de données!"
+        return False, "❌ DB inaccessible"
+
     try:
         cur = conn.cursor()
-        password_hash = hash_password(password)
         cur.execute(
-            "INSERT INTO users (username, email, password_hash) VALUES (%s, %s, %s) RETURNING id",
-            (username, email, password_hash)
+            "INSERT INTO users (username,email,password_hash) VALUES (%s,%s,%s) RETURNING id",
+            (username, email, hash_password(password))
         )
-        user_id = cur.fetchone()[0]
         conn.commit()
         cur.close()
         conn.close()
-        return True, f"✅ Inscription réussie! (ID {user_id})"
+        return True, "✅ Compte créé"
     except psycopg2.IntegrityError:
-        try:
-            conn.rollback()
-        except:
-            pass
-        if conn:
-            conn.close()
-        return False, "❌ Ce nom d'utilisateur ou email existe déjà!"
+        conn.rollback()
+        conn.close()
+        return False, "❌ Déjà utilisé"
     except Exception as e:
-        if conn:
-            conn.close()
-        return False, f"❌ Erreur: {str(e)}"
+        conn.close()
+        return False, str(e)
 
 def login_user(username, password):
-    """Authentifier un utilisateur"""
-    if not username or not password:
-        return None, "❌ Entrez votre nom d'utilisateur et mot de passe!"
     conn = get_db_connection()
-    if not conn:
-        return None, "❌ Erreur de connexion à la base de données!"
+    if not conn: return None, "❌ DB inaccessible"
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        password_hash = hash_password(password)
-        cur.execute("SELECT id, username, email FROM users WHERE username = %s AND password_hash = %s",
-                    (username, password_hash))
+        cur.execute(
+            "SELECT id,username,email FROM users WHERE username=%s AND password_hash=%s",
+            (username, hash_password(password))
+        )
         user = cur.fetchone()
-        cur.close()
-        conn.close()
-        if user:
-            return {'id': user['id'], 'username': user['username'], 'email': user['email']}, "✅ Connexion réussie!"
-        else:
-            return None, "❌ Nom d'utilisateur ou mot de passe incorrect!"
+        cur.close(); conn.close()
+        if user: return user, "✅ Connecté"
+        return None, "❌ Identifiants incorrects"
     except Exception as e:
-        if conn:
-            conn.close()
-        return None, f"❌ Erreur: {str(e)}"
+        conn.close(); return None, str(e)
 
 def request_password_reset(email):
-    """Générer un token de reset"""
     conn = get_db_connection()
-    if not conn:
-        return False, "❌ Erreur de connexion à la base de données!"
+    if not conn: return False, "❌ DB inaccessible"
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        cur.execute("SELECT id FROM users WHERE email = %s", (email,))
-        user = cur.fetchone()
-        if not user:
-            cur.close()
-            conn.close()
-            return False, "❌ Email non trouvé!"
-        reset_token = secrets.token_urlsafe(32)
-        expires_at = datetime.now() + timedelta(hours=1)
-        cur.execute(
-            "INSERT INTO user_reset_password (user_id, reset_token, expires_at) VALUES (%s, %s, %s)",
-            (user['id'], reset_token, expires_at)
-        )
-        conn.commit()
-        cur.close()
-        conn.close()
-        return True, f"✅ Token généré: `{reset_token}` (valide 1 heure)"
-    except Exception as e:
-        if conn:
-            conn.close()
-        return False, f"❌ Erreur: {str(e)}"
+        cur.execute("SELECT id FROM users WHERE email=%s", (email,))
+        u = cur.fetchone()
+        if not u:
+            cur.close(); conn.close(); return False, "❌ Email inconnu"
 
-def reset_password(reset_token, new_password):
-    """Réinitialiser mot de passe"""
-    if len(new_password) < 6:
-        return False, "❌ Le mot de passe doit contenir au moins 6 caractères!"
+        token = secrets.token_urlsafe(32)
+        expire = datetime.now() + timedelta(hours=1)
+        cur.execute(
+            "INSERT INTO user_reset_password (user_id,reset_token,expires_at) VALUES (%s,%s,%s)",
+            (u['id'], token, expire)
+        )
+        conn.commit(); cur.close(); conn.close()
+        return True, f"Token: {token}"
+    except Exception as e:
+        conn.close(); return False, str(e)
+
+def reset_password(token, newpass):
     conn = get_db_connection()
-    if not conn:
-        return False, "❌ Erreur de connexion à la base de données!"
+    if not conn: return False, "❌ DB inaccessible"
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        cur.execute(
-            "SELECT id, user_id, expires_at, used FROM user_reset_password WHERE reset_token = %s",
-            (reset_token,)
-        )
-        rec = cur.fetchone()
-        if not rec:
-            cur.close()
-            conn.close()
-            return False, "❌ Token invalide!"
-        if rec['used']:
-            cur.close()
-            conn.close()
-            return False, "❌ Token déjà utilisé!"
-        if datetime.now() > rec['expires_at']:
-            cur.close()
-            conn.close()
-            return False, "❌ Token expiré!"
-        password_hash = hash_password(new_password)
-        cur.execute("UPDATE users SET password_hash = %s WHERE id = %s",
-                    (password_hash, rec['user_id']))
-        cur.execute("UPDATE user_reset_password SET used = TRUE WHERE id = %s",
-                    (rec['id'],))
-        conn.commit()
-        cur.close()
-        conn.close()
-        return True, "✅ Mot de passe réinitialisé avec succès!"
-    except Exception as e:
-        if conn:
-            conn.close()
-        return False, f"❌ Erreur: {str(e)}"
+        cur.execute("SELECT * FROM user_reset_password WHERE reset_token=%s", (token,))
+        r = cur.fetchone()
+        if not r: return False, "❌ Token invalide"
+        if r['used']: return False, "❌ Déjà utilisé"
+        if datetime.now() > r['expires_at']: return False, "❌ Expiré"
 
-# ===================================================================
-# Video functions
-# ===================================================================
+        cur.execute("UPDATE users SET password_hash=%s WHERE id=%s", (hash_password(newpass), r['user_id']))
+        cur.execute("UPDATE user_reset_password SET used=TRUE WHERE id=%s", (r['id'],))
+        conn.commit(); cur.close(); conn.close()
+        return True, "OK"
+    except Exception as e:
+        conn.close(); return False, str(e)
+
+# ==============================================================
+# VIDEO
+# ==============================================================
 def save_video_to_db(user_id, prompt, video_path):
-    """Insérer la vidéo dans la table video_generate"""
     conn = get_db_connection()
     if not conn:
+        print("❌ No DB connection for save_video_to_db")
         return False
     try:
         cur = conn.cursor()
         cur.execute(
-            "INSERT INTO video_generate (user_id, prompt, video_url) VALUES (%s, %s, %s)",
+            "INSERT INTO video_generate (user_id,prompt,video_url) VALUES (%s,%s,%s)",
             (user_id, prompt, video_path)
         )
-        conn.commit()
-        cur.close()
-        conn.close()
-        print(f"✅ Video salvata in DB: {video_path}")
+        conn.commit(); cur.close(); conn.close()
+        print("✅ Video saved to DB")
         return True
     except Exception as e:
-        if conn:
-            conn.close()
-        print(f"❌ Erreur save_video_to_db: {e}")
+        print(f"❌ save_video_to_db error: {e}")
+        try: conn.rollback()
+        except: pass
+        conn.close()
         return False
 
-def get_user_videos(user_id, limit=50):
-    """Récupérer vidéos d'un user"""
-    conn = get_db_connection()
-    if not conn:
-        return []
+def get_user_videos(user_id, limit=30):
+    conn = get_db_connection();
+    if not conn: return []
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute(
-            "SELECT id, prompt, video_url, created_at FROM video_generate WHERE user_id = %s ORDER BY created_at DESC LIMIT %s",
+            "SELECT * FROM video_generate WHERE user_id=%s ORDER BY created_at DESC LIMIT %s",
             (user_id, limit)
         )
-        rows = cur.fetchall()
-        cur.close()
-        conn.close()
-        return [dict(r) for r in rows]
+        r = cur.fetchall(); cur.close(); conn.close()
+        return r
     except Exception as e:
-        if conn:
-            conn.close()
-        print(f"❌ Erreur get_user_videos: {e}")
-        return []
+        print(e); conn.close(); return []
 
 def extract_video_path(result):
-    """Estrae il path del video dal risultato dell'API"""
-    print(f"🔍 Tipo risultato: {type(result)}")
-    print(f"🔍 Contenuto risultato: {result}")
-    
-    # Caso 1: è già una stringa (path)
-    if isinstance(result, str):
-        if os.path.exists(result):
-            print(f"✅ Path diretto trovato: {result}")
-            return result
-        print(f"⚠️ Path non esiste: {result}")
-        return None
-    
-    # Caso 2: è un dizionario
+    if isinstance(result, str) and os.path.exists(result): return result
     if isinstance(result, dict):
-        # Prova varie chiavi comuni
-        for key in ['video', 'path', 'file', 'output', 'video_path']:
-            if key in result:
-                path = result[key]
-                if isinstance(path, str) and os.path.exists(path):
-                    print(f"✅ Path trovato in dict['{key}']: {path}")
-                    return path
-        print(f"⚠️ Nessun path valido trovato nel dict")
-        return None
-    
-    # Caso 3: è una tupla
-    if isinstance(result, tuple):
-        for i, item in enumerate(result):
-            print(f"🔍 Elemento tupla [{i}]: {type(item)} = {item}")
-            # Prova ricorsivamente ogni elemento
-            path = extract_video_path(item)
-            if path:
-                return path
-        print(f"⚠️ Nessun path valido trovato nella tupla")
-        return None
-    
-    # Caso 4: è una lista
-    if isinstance(result, list):
-        for i, item in enumerate(result):
-            print(f"🔍 Elemento lista [{i}]: {type(item)} = {item}")
-            path = extract_video_path(item)
-            if path:
-                return path
-        print(f"⚠️ Nessun path valido trovato nella lista")
-        return None
-    
-    print(f"❌ Tipo di risultato non gestito: {type(result)}")
+        for k in ["video","path","file","output","video_path"]:
+            if k in result and isinstance(result[k], str) and os.path.exists(result[k]):
+                return result[k]
+    if isinstance(result, (list, tuple)):
+        for item in result:
+            p = extract_video_path(item)
+            if p: return p
     return None
 
 def generate_video_with_fallback(prompt, image_path, width, height, duration):
-    """Tenta il modèle primary, puis fallback en cas d'erreur"""
-    models_to_try = [
+    models = [
         (PRIMARY_CLIENT, "LTX Video", "primary"),
-        (FALLBACK_CLIENT, "Wan 2.2 First-Last Frame", "wan2.2_first_last")
+        (FALLBACK_CLIENT, "WAN 2.2", "fallback")
     ]
+
     last_error = None
-    
-    for model_space, model_name, model_type in models_to_try:
+    for model, name, mode in models:
         try:
-            st.info(f"🔄 Tentative avec **{model_name}**...")
-            client = Client(model_space)
-            
-            if model_type == "primary":
-                video_result = client.predict(
+            st.info(f"🔄 {name}...")
+            c = Client(model)
+
+            if mode == "primary":
+                out = c.predict(
                     prompt=prompt,
                     input_image_filepath=handle_file(image_path),
                     height_ui=height,
@@ -349,287 +250,152 @@ def generate_video_with_fallback(prompt, image_path, width, height, duration):
                     api_name="/image_to_video"
                 )
             else:
-                video_result = client.predict(
+                out = c.predict(
                     start_image_pil=handle_file(image_path),
                     end_image_pil=handle_file(image_path),
                     prompt=prompt,
-                    negative_prompt="色调艳丽，过曝，静态，细节模糊不清",
                     duration_seconds=duration,
                     steps=8,
                     guidance_scale=1,
-                    guidance_scale_2=1,
-                    seed=42,
-                    randomize_seed=True,
                     api_name="/generate_video_1"
                 )
 
-            # Estrai il path del video
-            video_path = extract_video_path(video_result)
-            
-            if video_path and os.path.exists(video_path):
-                st.session_state["current_model"] = model_space
-                st.success(f"✅ Vidéo générée avec {model_name}.")
-                return video_path
+            path = extract_video_path(out)
+            if path and os.path.exists(path):
+                st.success(f"OK: {name}")
+                return path
             else:
-                raise ValueError(f"Path video non valido o file non trovato: {video_path}")
-                
+                raise Exception(f"Invalid video path: {path}")
+
         except Exception as e:
             last_error = e
-            error_msg = str(e)
-            print(f"❌ Errore con {model_name}: {error_msg}")
-            print(traceback.format_exc())
-            st.warning(f"⚠️ {model_name} non disponible: {error_msg}")
+            st.warning(f"⚠️ {name} fail: {e}")
             continue
-    
-    raise Exception(f"❌ Tous les modèles ont échoué. Dernière erreur: {str(last_error)}")
 
-# ===================================================================
-# Streamlit session state init
-# ===================================================================
-if "logged_in" not in st.session_state:
-    st.session_state["logged_in"] = False
-if "user" not in st.session_state:
-    st.session_state["user"] = None
-if "current_model" not in st.session_state:
-    st.session_state["current_model"] = PRIMARY_CLIENT
-if "page" not in st.session_state:
-    st.session_state["page"] = "login"
-if "last_generated_video" not in st.session_state:
-    st.session_state["last_generated_video"] = None
+    raise Exception(f"All models failed: {last_error}")
 
-# ===================================================================
-# Logout helper
-# ===================================================================
+# ==============================================================
+# SESSION
+# ==============================================================
+for key, val in {
+    "logged_in": False,
+    "user": None,
+    "page": "login",
+    "current_model": PRIMARY_CLIENT,
+    "last_generated_video": None
+}.items():
+    if key not in st.session_state: st.session_state[key] = val
+
 def logout():
-    st.session_state["logged_in"] = False
-    st.session_state["user"] = None
-    st.session_state["page"] = "login"
-    st.session_state["last_generated_video"] = None
+    st.session_state.update({"logged_in": False, "user": None, "page": "login"})
     st.rerun()
 
-# ===================================================================
-# Pages rendering
-# ===================================================================
+# ==============================================================
+# UI
+# ==============================================================
 def render_login():
-    st.markdown("<h1 style='text-align: center; color: #4B0082;'>🔐 VimeoAI - Connexion</h1>", unsafe_allow_html=True)
-    username = st.text_input("Nom d'utilisateur", key="login_username")
-    password = st.text_input("Mot de passe", type="password", key="login_password")
-
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("Se connecter", use_container_width=True, key="btn_login"):
-            user, message = login_user(username, password)
-            if user:
-                st.session_state["logged_in"] = True
-                st.session_state["user"] = user
-                st.session_state["page"] = "app"
-                st.success(message)
-                st.rerun()
-            else:
-                st.error(message)
-
-    with col2:
-        if st.button("Créer un compte", use_container_width=True, key="btn_goto_register"):
-            st.session_state["page"] = "register"
+    st.header("🔐 Connexion")
+    u = st.text_input("Utilisateur")
+    p = st.text_input("Mot de passe", type="password")
+    if st.button("Se connecter"):
+        user, msg = login_user(u, p)
+        if user:
+            st.session_state.logged_in = True
+            st.session_state.user = user
+            st.session_state.page = "app"
             st.rerun()
-
-    if st.button("Mot de passe oublié?", key="btn_goto_forgot"):
-        st.session_state["page"] = "forgot_password"
-        st.rerun()
+        else: st.error(msg)
+    if st.button("Créer un compte"):
+        st.session_state.page = "register"; st.rerun()
+    if st.button("Mot de passe oublié"):
+        st.session_state.page = "forgot"; st.rerun()
 
 def render_register():
-    st.markdown("<h1 style='text-align: center; color: #4B0082;'>📝 Créer un compte</h1>", unsafe_allow_html=True)
-    new_username = st.text_input("Nom d'utilisateur", key="reg_username")
-    new_email = st.text_input("Email", key="reg_email")
-    new_password = st.text_input("Mot de passe", type="password", key="reg_password")
-    confirm_password = st.text_input("Confirmer le mot de passe", type="password", key="reg_confirm_password")
-
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("S'inscrire", use_container_width=True, key="btn_register"):
-            if new_password != confirm_password:
-                st.error("❌ Les mots de passe ne correspondent pas!")
-            else:
-                success, message = register_user(new_username, new_email, new_password)
-                if success:
-                    st.success(message)
-                    st.info("Vous pouvez maintenant vous connecter.")
-                    st.session_state["page"] = "login"
-                    st.rerun()
-                else:
-                    st.error(message)
-    with col2:
-        if st.button("Retour", use_container_width=True, key="btn_register_back"):
-            st.session_state["page"] = "login"
-            st.rerun()
+    st.header("Créer un compte")
+    u = st.text_input("Utilisateur")
+    e = st.text_input("Email")
+    p = st.text_input("Mot de passe", type="password")
+    c = st.text_input("Confirmer", type="password")
+    if st.button("S'inscrire"):
+        if p != c:
+            st.error("Mismatch")
+        else:
+            ok, msg = register_user(u, e, p)
+            if ok:
+                st.success(msg); st.session_state.page = "login"; st.rerun()
+            else: st.error(msg)
+    if st.button("Retour"):
+        st.session_state.page = "login"; st.rerun()
 
 def render_forgot_password():
-    st.markdown("<h1 style='text-align: center; color: #4B0082;'>🔑 Réinitialiser le mot de passe</h1>", unsafe_allow_html=True)
-    tab1, tab2 = st.tabs(["Demander un token", "Réinitialiser avec token"])
-
-    with tab1:
-        email = st.text_input("Votre email pour recevoir le token", key="forgot_email")
-        if st.button("Envoyer le token", key="btn_send_token"):
-            success, message = request_password_reset(email)
-            if success:
-                st.success(message)
+    st.header("Reset Mot de passe")
+    t1, t2 = st.tabs(["Demander","Utiliser"])
+    with t1:
+        email = st.text_input("Email")
+        if st.button("Envoyer"):
+            ok, msg = request_password_reset(email)
+            (st.success if ok else st.error)(msg)
+    with t2:
+        tok = st.text_input("Token")
+        n = st.text_input("Nouveau", type="password")
+        c = st.text_input("Confirmer", type="password")
+        if st.button("Réinitialiser"):
+            if n != c: st.error("Mismatch")
             else:
-                st.error(message)
-
-    with tab2:
-        reset_token = st.text_input("Token de réinitialisation", key="reset_token")
-        new_pass = st.text_input("Nouveau mot de passe", type="password", key="reset_new_pass")
-        confirm_pass = st.text_input("Confirmer le mot de passe", type="password", key="reset_confirm_pass")
-        if st.button("Réinitialiser", key="btn_reset_password"):
-            if new_pass != confirm_pass:
-                st.error("❌ Les mots de passe ne correspondent pas!")
-            else:
-                success, message = reset_password(reset_token, new_pass)
-                if success:
-                    st.success(message)
-                    st.session_state["page"] = "login"
-                    st.rerun()
-                else:
-                    st.error(message)
-
-    if st.button("Retour à la connexion", key="btn_back_to_login"):
-        st.session_state["page"] = "login"
-        st.rerun()
+                ok, msg = reset_password(tok, n)
+                if ok: st.success(msg); st.session_state.page="login"; st.rerun()
+                else: st.error(msg)
+    if st.button("Retour"):
+        st.session_state.page="login"; st.rerun()
 
 def render_app():
-    user = st.session_state.get("user")
-    if not user:
-        st.session_state["page"] = "login"
-        st.rerun()
-        return
+    user = st.session_state.user
+    st.header("🎬 VimeoAI")
+    st.sidebar.write(f"👤 {user['username']}")
+    if st.sidebar.button("Déconnexion"): logout()
 
-    st.markdown("<h1 style='text-align: center; color: #4B0082;'>🎬 VimeoAI</h1>", unsafe_allow_html=True)
-    st.markdown(f"<p style='text-align: center; color: #666;'>Bienvenue **{user['username']}**!</p>", unsafe_allow_html=True)
+    vids = get_user_videos(user['id'])
+    st.sidebar.subheader("Vos vidéos")
+    for v in vids:
+        if os.path.exists(v['video_url']): st.sidebar.video(v['video_url'])
 
-    model_names = {
-        PRIMARY_CLIENT: "LTX Video",
-        FALLBACK_CLIENT: "Wan 2.2 First-Last Frame"
-    }
-    current_model_name = model_names.get(st.session_state["current_model"], "Inconnu")
-    st.info(f"🤖 Modèle actif: **{current_model_name}**")
+    st.subheader("Créer une vidéo")
+    img = st.file_uploader("Image",["png","jpg","jpeg","webp"])
+    prompt = st.text_input("Prompt")
+    duration = st.slider("Durée",2,10,5)
+    res = st.selectbox("Résolution",["512x512","704x512","1024x576"])
 
-    # Sidebar
-    st.sidebar.header(f"👤 {user['username']}")
-    if st.sidebar.button("🔒 Déconnexion", key="sidebar_logout"):
-        logout()
-
-    st.sidebar.markdown("---")
-    st.sidebar.header("📂 Vos vidéos générées")
-
-    user_videos = get_user_videos(user['id'])
-    if user_videos:
-        for video in user_videos:
-            if video.get('video_url') and os.path.exists(video['video_url']):
-                with st.sidebar:
-                    st.video(video['video_url'])
-                    st.markdown(f"**Prompt:** {video['prompt'][:50]}...")
-                    st.markdown(f"*{video['created_at']}*")
-                    st.markdown("---")
-            else:
-                st.sidebar.warning(f"⚠️ Vidéo listée mais fichier manquant: {video.get('video_url', 'N/A')}")
-    else:
-        st.sidebar.info("Aucune vidéo générée pour le moment.")
-
-    st.markdown("### 🎨 Générer une nouvelle vidéo")
-    
-    # Mostra l'ultimo video generato se esiste
-    if st.session_state.get("last_generated_video") and os.path.exists(st.session_state["last_generated_video"]):
-        st.success("✅ Dernière vidéo générée:")
-        st.video(st.session_state["last_generated_video"])
-        st.markdown("---")
-    
-    uploaded_file = st.file_uploader("📷 Choisissez une image", type=["png", "jpg", "jpeg", "webp"], key="upload_img")
-    prompt = st.text_input("📝 Entrez une description pour la vidéo", key="video_prompt")
-
-    col1, col2 = st.columns([1, 1])
-    with col1:
-        duration = st.slider("⏱ Durée (secondes)", 2, 10, 5, key="video_duration")
-    with col2:
-        resolution = st.selectbox("🎥 Résolution", ["512x512", "704x512", "1024x576"], key="video_resolution")
-
-    if st.button("🚀 Générer la vidéo", use_container_width=True, key="btn_generate_video"):
-        if uploaded_file is None:
-            st.error("⚠️ Veuillez sélectionner une image.")
-        elif not prompt:
-            st.error("⚠️ Veuillez entrer une description.")
+    if st.button("Générer"):
+        if not img: st.error("Choisissez une image")
+        elif not prompt: st.error("Prompt vide")
         else:
-            temp_path = None
             try:
-                # Salva temporaneamente l'immagine
-                suffix = os.path.splitext(uploaded_file.name)[1] if uploaded_file.name else ".png"
-                with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
-                    tmp_file.write(uploaded_file.read())
-                    temp_path = tmp_file.name
-
-                width, height = map(int, resolution.split("x"))
-                
-                with st.spinner("🎬 Génération en cours..."):
-                    video_source_path = generate_video_with_fallback(
-                        prompt=prompt,
-                        image_path=temp_path,
-                        width=width,
-                        height=height,
-                        duration=duration
-                    )
-
-                # Crea un nome unico per il video
-                unique_name = f"{uuid.uuid4().hex}.mp4"
-                save_path = os.path.join(GENERATED_DIR, unique_name)
-
-                # Copia il video nella directory definitiva
-                if video_source_path and os.path.exists(video_source_path):
-                    print(f"📁 Copia video da {video_source_path} a {save_path}")
-                    shutil.copy2(video_source_path, save_path)
-                    
-                    # Verifica che la copia sia andata a buon fine
-                    if os.path.exists(save_path):
-                        file_size = os.path.getsize(save_path)
-                        print(f"✅ Video copiato con successo! Dimensione: {file_size} bytes")
-                        
-                        # Salva nel database
-                        if save_video_to_db(user['id'], prompt, save_path):
-                            st.session_state["last_generated_video"] = save_path
-                            st.success("✅ Vidéo générée avec succès!")
-                            st.video(save_path)
-                            
-                            # Ricarica la pagina per aggiornare la galleria
-                            st.rerun()
-                        else:
-                            st.error("❌ Erreur lors de la sauvegarde dans la base de données!")
-                    else:
-                        st.error("❌ Erreur lors de la copie du fichier vidéo!")
-                else:
-                    st.error(f"❌ Fichier vidéo source invalide: {video_source_path}")
-
+                suffix = os.path.splitext(img.name)[1]
+                with tempfile.NamedTemporaryFile(delete=False,suffix=suffix) as tmp:
+                    tmp.write(img.read()); img_path = tmp.name
+                w,h=map(int,res.split("x"))
+                with st.spinner("Génération..."):
+                    src = generate_video_with_fallback(prompt,img_path,w,h,duration)
+                uniq = f"{uuid.uuid4().hex}.mp4"
+                final = os.path.join(GENERATED_DIR,uniq)
+                shutil.copy2(src, final)
+                if os.path.exists(final):
+                    save_video_to_db(user['id'],prompt,final)
+                    st.success("Vidéo prête")
+                    st.video(final)
+                else: st.error("Copy fail")
             except Exception as e:
-                st.error(f"🚨 Erreur: {str(e)}")
-                st.error(traceback.format_exc())
+                st.error(str(e))
             finally:
-                # Pulisci il file temporaneo
-                try:
-                    if temp_path and os.path.exists(temp_path):
-                        os.remove(temp_path)
-                        print(f"🧹 File temporaneo rimosso: {temp_path}")
-                except Exception as e:
-                    print(f"⚠️ Errore rimozione file temp: {e}")
+                try: os.remove(img_path)
+                except: pass
 
-# ===================================================================
-# Router principale
-# ===================================================================
-page = st.session_state.get("page", "login")
-if page == "login":
-    render_login()
-elif page == "register":
-    render_register()
-elif page == "forgot_password":
-    render_forgot_password()
-elif page == "app":
-    render_app()
-else:
-    st.session_state["page"] = "login"
-    render_login()
+# ==============================================================
+# ROUTER
+# ==============================================================
+p = st.session_state.page
+if p == "login": render_login()
+elif p == "register": render_register()
+elif p == "forgot": render_forgot_password()
+elif p == "app": render_app()
+else: st.session_state.page="login"; render_login()
