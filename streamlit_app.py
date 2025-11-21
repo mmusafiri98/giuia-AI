@@ -12,9 +12,11 @@ from datetime import datetime, timedelta
 import traceback
 import requests
 
-==============================================================
-CONFIG
-==============================================================
+# ==============================================================
+
+# CONFIG
+
+# ==============================================================
 
 st.set_page_config(page_title="VimeoAI - Video Generator", page_icon="🎬", layout="centered")
 
@@ -24,13 +26,15 @@ GENERATED_DIR = os.path.join(BASE_DIR, "generated_videos")
 os.makedirs(STATIC_DIR, exist_ok=True)
 os.makedirs(GENERATED_DIR, exist_ok=True)
 
-DATABASE_URL = "postgresql://neondb_owner@ep-icy-tooth-adi815w9-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require"
+DATABASE_URL = "postgresql://neondb_[owner@ep-icy-tooth-adi815w9-pooler.c-2.us-east-1.aws.neon.tech](mailto:owner@ep-icy-tooth-adi815w9-pooler.c-2.us-east-1.aws.neon.tech)/neondb?sslmode=require"
 PRIMARY_CLIENT = "Lightricks/ltx-video-distilled"
 FALLBACK_CLIENT = "multimodalart/wan-2-2-first-last-frame"
 
-==============================================================
-DATABASE HELPERS
-==============================================================
+# ==============================================================
+
+# DATABASE HELPERS
+
+# ==============================================================
 
 def get_db_connection():
 try:
@@ -90,9 +94,11 @@ conn.close()
 
 init_database()
 
-==============================================================
-AUTH
-==============================================================
+# ==============================================================
+
+# AUTH
+
+# ==============================================================
 
 def hash_password(pwd):
 return hashlib.sha256(pwd.encode()).hexdigest()
@@ -103,6 +109,7 @@ return False, "❌ Remplissez tous les champs!"
 if len(password) < 6:
 return False, "❌ Mot de passe trop corto!"
 
+```
 conn = get_db_connection()
 if not conn:
     return False, "❌ DB inaccessible"
@@ -125,6 +132,7 @@ except psycopg2.IntegrityError:
 except Exception as e:
     conn.close()
     return False, str(e)
+```
 
 def login_user(username, password):
 conn = get_db_connection()
@@ -157,6 +165,7 @@ u = cur.fetchone()
 if not u:
 cur.close(); conn.close(); return False, "❌ Email inconnu"
 
+```
     token = secrets.token_urlsafe(32)
     expire = datetime.now() + timedelta(hours=1)
     cur.execute(
@@ -167,6 +176,7 @@ cur.close(); conn.close(); return False, "❌ Email inconnu"
     return True, f"✅ Token generato (mostrare in prod via email): {token}"
 except Exception as e:
     conn.close(); return False, str(e)
+```
 
 def reset_password(token, newpass):
 if len(newpass) < 6:
@@ -185,15 +195,20 @@ cur.close(); conn.close(); return False, "❌ Token déjà utilisé"
 if datetime.now() > r['expires_at']:
 cur.close(); conn.close(); return False, "❌ Token expiré"
 
+```
     cur.execute("UPDATE users SET password_hash=%s WHERE id=%s", (hash_password(newpass), r['user_id']))
     cur.execute("UPDATE user_reset_password SET used=TRUE WHERE id=%s", (r['id'],))
     conn.commit(); cur.close(); conn.close()
     return True, "✅ Mot de passe réinitialisé"
 except Exception as e:
     conn.close(); return False, str(e)
-==============================================================
-VIDEO HELPERS
-==============================================================
+```
+
+# ==============================================================
+
+# VIDEO HELPERS
+
+# ==============================================================
 
 def save_video_to_db(user_id, prompt, video_path):
 """Insère une vidéo dans la DB avec debug."""
@@ -283,6 +298,12 @@ print("❌ Exception download_video_to_path:", e)
 print(traceback.format_exc())
 return False
 
+# ==============================================================
+
+# Génération vidéo avec fallback
+
+# ==============================================================
+
 def generate_video_with_fallback(prompt, image_path, width, height, duration):
 """Essaie plusieurs modèles pour générer une vidéo."""
 models_to_try = [
@@ -291,6 +312,7 @@ models_to_try = [
 ]
 last_error = None
 
+```
 for model_space, model_name, model_type in models_to_try:
     try:
         st.info(f"🔄 Tentative avec **{model_name}**...")
@@ -343,141 +365,4 @@ for model_space, model_name, model_type in models_to_try:
         continue
 
 raise Exception(f"❌ Tous les modèles ont échoué. Dernière erreur: {str(last_error)}")
-==============================================================
-STREAMLIT SESSION INIT
-==============================================================
-
-if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
-if 'user' not in st.session_state: st.session_state['user'] = None
-if 'current_model' not in st.session_state: st.session_state['current_model'] = PRIMARY_CLIENT
-if 'page' not in st.session_state: st.session_state['page'] = 'login'
-if 'last_generated_video' not in st.session_state: st.session_state['last_generated_video'] = None
-
-def logout():
-st.session_state['logged_in'] = False
-st.session_state['user'] = None
-st.session_state['page'] = 'login'
-st.session_state['last_generated_video'] = None
-st.rerun()
-
-==============================================================
-UI PAGES (login, register, forgot, app)
-==============================================================
-... Les fonctions render_login, render_register, render_forgot_password, render_app
-restent identiques sauf que la partie génération vidéo est mise à jour ci-dessous:
-
-def render_app():
-user = st.session_state.get('user')
-if not user:
-st.session_state['page'] = 'login'
-st.rerun()
-return
-
-st.markdown("<h1 style='text-align: center; color: #4B0082;'>🎬 VimeoAI</h1>", unsafe_allow_html=True)
-st.markdown(f"<p style='text-align: center; color: #666;'>Bienvenue **{user['username']}**!</p>", unsafe_allow_html=True)
-
-model_names = {PRIMARY_CLIENT: "LTX Video", FALLBACK_CLIENT: "Wan 2.2 First-Last Frame"}
-current_model_name = model_names.get(st.session_state['current_model'], "Inconnu")
-st.info(f"🤖 Modèle actif: **{current_model_name}**")
-
-st.sidebar.header(f"👤 {user['username']}")
-if st.sidebar.button("🔒 Déconnexion", key="sidebar_logout"):
-    logout()
-
-st.sidebar.markdown("---")
-st.sidebar.header("📂 Vos vidéos générées")
-user_videos = get_user_videos(user['id'])
-if user_videos:
-    for video in user_videos:
-        vpath = video.get('video_url')
-        if vpath and os.path.exists(vpath):
-            with st.sidebar:
-                st.video(vpath)
-                st.markdown(f"**Prompt:** {video['prompt'][:50]}...")
-                st.markdown(f"*{video['created_at']}*")
-                st.markdown("---")
-        else:
-            st.sidebar.warning(f"⚠️ Vidéo listée mais fichier manquant: {vpath}")
-else:
-    st.sidebar.info("Aucune vidéo générée pour le moment.")
-
-st.markdown("### 🎨 Générer une nouvelle vidéo")
-uploaded_file = st.file_uploader("📷 Choisissez une image", type=["png", "jpg", "jpeg", "webp"], key="upload_img")
-prompt = st.text_input("📝 Entrez une description pour la vidéo", key="video_prompt")
-
-col1, col2 = st.columns([1, 1])
-with col1:
-    duration = st.slider("⏱ Durée (secondes)", 2, 10, 5, key="video_duration")
-with col2:
-    resolution = st.selectbox("🎥 Résolution", ["512x512", "704x512", "1024x576"], key="video_resolution")
-
-if st.session_state.get('last_generated_video') and os.path.exists(st.session_state['last_generated_video']):
-    st.success("✅ Dernière vidéo générée:")
-    st.video(st.session_state['last_generated_video'])
-    st.markdown("---")
-
-if st.button("🚀 Générer la vidéo", use_container_width=True, key="btn_generate_video"):
-    if uploaded_file is None:
-        st.error("⚠️ Veuillez sélectionner une image.")
-    elif not prompt:
-        st.error("⚠️ Veuillez entrer une description.")
-    else:
-        temp_path = None
-        try:
-            suffix = os.path.splitext(uploaded_file.name)[1] if uploaded_file.name else ".png"
-            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
-                tmp_file.write(uploaded_file.read())
-                temp_path = tmp_file.name
-
-            width, height = map(int, resolution.split("x"))
-            with st.spinner("🎬 Génération en cours..."):
-                video_source = generate_video_with_fallback(
-                    prompt=prompt,
-                    image_path=temp_path,
-                    width=width,
-                    height=height,
-                    duration=duration
-                )
-
-            unique_name = f"{uuid.uuid4().hex}.mp4"
-            save_path = os.path.join(GENERATED_DIR, unique_name)
-
-            ok = download_video_to_path(video_source, save_path)
-            print(f"DEBUG after download: {save_path}, exists={os.path.exists(save_path)}")
-            if not ok:
-                st.error("❌ Errore durante il download/salvataggio del video generato.")
-            else:
-                saved = save_video_to_db(user['id'], prompt, save_path)
-                if saved:
-                    st.session_state['last_generated_video'] = save_path
-                    st.success("✅ Vidéo générée et salvata con successo!")
-                    st.video(save_path)
-                    st.rerun()
-                else:
-                    st.error("❌ Errore lors de la sauvegarde dans la base de données!")
-
-        except Exception as e:
-            st.error(f"🚨 Errore: {str(e)}")
-            st.error(traceback.format_exc())
-        finally:
-            try:
-                if temp_path and os.path.exists(temp_path):
-                    os.remove(temp_path)
-            except Exception:
-                pass
-==============================================================
-ROUTER
-==============================================================
-
-page = st.session_state.get('page', 'login')
-if page == 'login':
-render_login()
-elif page == 'register':
-render_register()
-elif page == 'forgot_password':
-render_forgot_password()
-elif page == 'app':
-render_app()
-else:
-st.session_state['page'] = 'login'
-render_login()
+```
