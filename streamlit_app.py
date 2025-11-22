@@ -222,6 +222,8 @@ def reset_password(token, newpass):
 
 def save_video_to_db(user_id, prompt, video_path):
     """Insère une vidéo dans la DB avec debug détaillé."""
+    error_msg = None
+    
     print("="*60)
     print("DEBUG save_video_to_db - DÉBUT")
     print(f"  user_id: {user_id} (type: {type(user_id)})")
@@ -233,21 +235,27 @@ def save_video_to_db(user_id, prompt, video_path):
         print(f"  file size: {os.path.getsize(video_path)} bytes")
     
     if not os.path.exists(video_path):
-        print(f"❌ ERROR: File does not exist: {video_path}")
+        error_msg = f"File does not exist: {video_path}"
+        print(f"❌ ERROR: {error_msg}")
+        st.error(f"🔍 ERROR: {error_msg}")
         return False
     
     print("  Tentative de connexion DB...")
     conn = get_db_connection()
     if not conn:
-        print("❌ ERROR: No DB connection")
+        error_msg = "No DB connection"
+        print(f"❌ ERROR: {error_msg}")
+        st.error(f"🔍 ERROR: {error_msg}")
         return False
     
     print("  Connexion DB OK")
+    st.info("🔍 Connexion DB réussie")
     
     try:
         cur = conn.cursor()
         print(f"  Executing INSERT query...")
         print(f"  Query params: user_id={user_id}, prompt_len={len(prompt)}, video_path={video_path}")
+        st.info(f"🔍 Exécution INSERT avec user_id={user_id}")
         
         cur.execute(
             "INSERT INTO video_generate (user_id, prompt, video_url) VALUES (%s, %s, %s) RETURNING id",
@@ -256,9 +264,11 @@ def save_video_to_db(user_id, prompt, video_path):
         
         vid_id = cur.fetchone()[0]
         print(f"  INSERT successful, video_id={vid_id}")
+        st.success(f"🔍 INSERT réussi, video_id={vid_id}")
         
         conn.commit()
         print(f"  COMMIT successful")
+        st.success(f"🔍 COMMIT réussi")
         
         cur.close()
         conn.close()
@@ -268,11 +278,16 @@ def save_video_to_db(user_id, prompt, video_path):
         return True
         
     except Exception as e:
+        error_msg = str(e)
         print(f"❌ EXCEPTION in save_video_to_db:")
         print(f"  Error type: {type(e).__name__}")
-        print(f"  Error message: {str(e)}")
+        print(f"  Error message: {error_msg}")
         print(f"  Full traceback:")
         print(traceback.format_exc())
+        
+        st.error(f"🔍 ERREUR SQL: {type(e).__name__}")
+        st.error(f"🔍 Message: {error_msg}")
+        
         try:
             conn.rollback()
             print("  Rollback executed")
@@ -532,10 +547,45 @@ def show_generator_page():
     st.title(f"🎬 VimeoAI - Générateur de Vidéos")
     st.write(f"Bienvenue **{user['username']}**!")
     
-    if st.button("Se déconnecter", type="secondary"):
-        st.session_state['user'] = None
-        st.session_state['page'] = 'login'
-        st.rerun()
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        if st.button("Se déconnecter", type="secondary"):
+            st.session_state['user'] = None
+            st.session_state['page'] = 'login'
+            st.rerun()
+    
+    with col2:
+        if st.button("🔧 Test DB", type="secondary"):
+            with st.spinner("Test de la base de données..."):
+                conn = get_db_connection()
+                if conn:
+                    try:
+                        cur = conn.cursor()
+                        # Test SELECT sur la table users
+                        cur.execute("SELECT COUNT(*) FROM users")
+                        user_count = cur.fetchone()[0]
+                        st.success(f"✅ DB OK - {user_count} utilisateurs")
+                        
+                        # Test SELECT sur la table video_generate
+                        cur.execute("SELECT COUNT(*) FROM video_generate WHERE user_id = %s", (user['id'],))
+                        video_count = cur.fetchone()[0]
+                        st.info(f"📹 Vous avez {video_count} vidéos en BD")
+                        
+                        # Test d'insertion factice (avec rollback)
+                        cur.execute("INSERT INTO video_generate (user_id, prompt, video_url) VALUES (%s, %s, %s) RETURNING id",
+                                  (user['id'], "TEST", "/tmp/test.mp4"))
+                        test_id = cur.fetchone()[0]
+                        conn.rollback()  # On annule l'insertion
+                        st.success(f"✅ Test INSERT OK (rollback effectué, test_id={test_id})")
+                        
+                        cur.close()
+                        conn.close()
+                    except Exception as e:
+                        st.error(f"❌ Erreur test DB: {str(e)}")
+                        st.code(traceback.format_exc())
+                        conn.close()
+                else:
+                    st.error("❌ Impossible de se connecter à la DB")
     
     st.divider()
     
