@@ -24,7 +24,13 @@ GENERATED_DIR = os.path.join(BASE_DIR, "generated_videos")
 os.makedirs(STATIC_DIR, exist_ok=True)
 os.makedirs(GENERATED_DIR, exist_ok=True)
 
-DATABASE_URL = "psql 'postgresql://neondb_owner:npg_b3qwDlLzV9YO@ep-icy-tooth-adi815w9-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require'"
+# Récupérer l'URL de la base de données depuis les secrets
+try:
+    DATABASE_URL = st.secrets["DATABASE_URL"]
+except:
+    # Fallback pour le développement local
+    DATABASE_URL = "postgresql://neondb_owner:npg_b3qwDlLzV9YO@ep-icy-tooth-adi815w9-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require"
+
 PRIMARY_CLIENT = "Lightricks/ltx-video-distilled"
 FALLBACK_CLIENT = "multimodalart/wan-2-2-first-last-frame"
 
@@ -33,11 +39,15 @@ FALLBACK_CLIENT = "multimodalart/wan-2-2-first-last-frame"
 # ==============================================================
 
 def get_db_connection():
+    if not DATABASE_URL:
+        print("❌ DATABASE_URL not configured")
+        return None
     try:
         conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
         return conn
     except Exception as e:
         print(f"❌ DB connection error: {e}")
+        st.error(f"Erreur de connexion DB: {str(e)}")
         return None
 
 def init_database():
