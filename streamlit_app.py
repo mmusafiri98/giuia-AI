@@ -221,35 +221,65 @@ def reset_password(token, newpass):
 # ==============================================================
 
 def save_video_to_db(user_id, prompt, video_path):
-    """Insère une vidéo dans la DB avec debug."""
-    print(f"DEBUG save_video_to_db: user_id={user_id}, prompt={prompt}, video_path={video_path}, exists={os.path.exists(video_path)}")
+    """Insère une vidéo dans la DB avec debug détaillé."""
+    print("="*60)
+    print("DEBUG save_video_to_db - DÉBUT")
+    print(f"  user_id: {user_id} (type: {type(user_id)})")
+    print(f"  prompt: {prompt[:100]}... (len: {len(prompt)})")
+    print(f"  video_path: {video_path}")
+    print(f"  file exists: {os.path.exists(video_path)}")
+    
+    if os.path.exists(video_path):
+        print(f"  file size: {os.path.getsize(video_path)} bytes")
+    
     if not os.path.exists(video_path):
-        print(f"❌ File does not exist: {video_path}")
+        print(f"❌ ERROR: File does not exist: {video_path}")
         return False
+    
+    print("  Tentative de connexion DB...")
     conn = get_db_connection()
     if not conn:
-        print("❌ No DB connection for save_video_to_db")
+        print("❌ ERROR: No DB connection")
         return False
+    
+    print("  Connexion DB OK")
+    
     try:
         cur = conn.cursor()
+        print(f"  Executing INSERT query...")
+        print(f"  Query params: user_id={user_id}, prompt_len={len(prompt)}, video_path={video_path}")
+        
         cur.execute(
-            "INSERT INTO video_generate (user_id,prompt,video_url) VALUES (%s,%s,%s) RETURNING id",
+            "INSERT INTO video_generate (user_id, prompt, video_url) VALUES (%s, %s, %s) RETURNING id",
             (user_id, prompt, video_path)
         )
+        
         vid_id = cur.fetchone()[0]
+        print(f"  INSERT successful, video_id={vid_id}")
+        
         conn.commit()
+        print(f"  COMMIT successful")
+        
         cur.close()
         conn.close()
-        print(f"✅ Video saved to DB (id={vid_id})")
+        
+        print(f"✅ SUCCESS: Video saved to DB (id={vid_id})")
+        print("="*60)
         return True
+        
     except Exception as e:
-        print(f"❌ save_video_to_db error: {e}")
+        print(f"❌ EXCEPTION in save_video_to_db:")
+        print(f"  Error type: {type(e).__name__}")
+        print(f"  Error message: {str(e)}")
+        print(f"  Full traceback:")
         print(traceback.format_exc())
         try:
             conn.rollback()
-        except:
-            pass
+            print("  Rollback executed")
+        except Exception as rb_err:
+            print(f"  Rollback failed: {rb_err}")
         conn.close()
+        print("="*60)
         return False
 
 def get_user_videos(user_id, limit=50):
@@ -290,28 +320,72 @@ def extract_video_path(result):
     return None
 
 def download_video_to_path(source, dest_path, timeout=60):
-    """Télécharge ou copie le fichier vidéo."""
+    """Télécharge ou copie le fichier vidéo avec debug détaillé."""
+    print("="*60)
+    print("DEBUG download_video_to_path - DÉBUT")
+    print(f"  source: {source}")
+    print(f"  source type: {type(source)}")
+    print(f"  dest_path: {dest_path}")
+    
     try:
+        # Cas 1: Fichier local
         if isinstance(source, str) and os.path.exists(source):
+            print(f"  Mode: Copie fichier local")
+            print(f"  Source exists: {os.path.exists(source)}")
+            print(f"  Source size: {os.path.getsize(source)} bytes")
+            
             shutil.copy2(source, dest_path)
-            print(f"✅ Copied local video to {dest_path}")
+            
+            print(f"  Copie effectuée")
+            print(f"  Dest exists: {os.path.exists(dest_path)}")
+            print(f"  Dest size: {os.path.getsize(dest_path)} bytes")
+            print(f"✅ SUCCESS: Copied local video to {dest_path}")
+            print("="*60)
             return True
+        
+        # Cas 2: URL
         if is_url(source):
+            print(f"  Mode: Téléchargement depuis URL")
+            print(f"  URL: {source}")
+            
             with requests.get(source, stream=True, timeout=timeout) as r:
+                print(f"  HTTP Status: {r.status_code}")
+                print(f"  Content-Type: {r.headers.get('content-type', 'N/A')}")
+                print(f"  Content-Length: {r.headers.get('content-length', 'N/A')} bytes")
+                
                 if r.status_code != 200:
-                    print(f"❌ HTTP {r.status_code} during download")
+                    print(f"❌ ERROR: HTTP {r.status_code} during download")
+                    print("="*60)
                     return False
+                
                 with open(dest_path, 'wb') as f:
+                    total_bytes = 0
                     for chunk in r.iter_content(chunk_size=8192):
                         if chunk:
                             f.write(chunk)
-            print(f"✅ Downloaded video from URL to {dest_path}")
-            return True
-        print("❌ Invalid video source:", source)
+                            total_bytes += len(chunk)
+                
+                print(f"  Total downloaded: {total_bytes} bytes")
+                print(f"  File exists: {os.path.exists(dest_path)}")
+                print(f"  File size: {os.path.getsize(dest_path)} bytes")
+                print(f"✅ SUCCESS: Downloaded video from URL to {dest_path}")
+                print("="*60)
+                return True
+        
+        # Cas 3: Source invalide
+        print(f"❌ ERROR: Invalid video source")
+        print(f"  Not a file: {not (isinstance(source, str) and os.path.exists(source))}")
+        print(f"  Not a URL: {not is_url(source)}")
+        print("="*60)
         return False
+        
     except Exception as e:
-        print("❌ Exception download_video_to_path:", e)
+        print(f"❌ EXCEPTION in download_video_to_path:")
+        print(f"  Error type: {type(e).__name__}")
+        print(f"  Error message: {str(e)}")
+        print(f"  Full traceback:")
         print(traceback.format_exc())
+        print("="*60)
         return False
 
 # ==============================================================
@@ -510,15 +584,31 @@ def show_generator_page():
                         
                         # Télécharger et sauvegarder la vidéo
                         final_video_path = os.path.join(GENERATED_DIR, f"video_{uuid.uuid4()}.mp4")
+                        
+                        st.info(f"🔍 DEBUG: Chemin vidéo extrait: {video_path}")
+                        st.info(f"🔍 DEBUG: Chemin final prévu: {final_video_path}")
+                        st.info(f"🔍 DEBUG: Type de video_path: {type(video_path)}")
+                        
                         if download_video_to_path(video_path, final_video_path):
+                            st.success(f"✅ Vidéo téléchargée vers: {final_video_path}")
+                            st.info(f"🔍 DEBUG: Fichier existe? {os.path.exists(final_video_path)}")
+                            st.info(f"🔍 DEBUG: Taille fichier: {os.path.getsize(final_video_path) if os.path.exists(final_video_path) else 'N/A'} bytes")
+                            st.info(f"🔍 DEBUG: User ID: {user['id']}")
+                            st.info(f"🔍 DEBUG: Prompt: {prompt[:50]}...")
+                            
                             # Sauvegarder dans la base de données
-                            if save_video_to_db(user['id'], prompt, final_video_path):
-                                st.success("✅ Vidéo générée et sauvegardée!")
+                            save_result = save_video_to_db(user['id'], prompt, final_video_path)
+                            st.info(f"🔍 DEBUG: Résultat save_video_to_db: {save_result}")
+                            
+                            if save_result:
+                                st.success("✅ Vidéo générée et sauvegardée en BD!")
                                 st.video(final_video_path)
                             else:
-                                st.error("Erreur lors de la sauvegarde en base de données")
+                                st.error("❌ Erreur lors de la sauvegarde en base de données")
+                                st.error("Vérifiez les logs dans la console pour plus de détails")
                         else:
-                            st.error("Erreur lors du téléchargement de la vidéo")
+                            st.error("❌ Erreur lors du téléchargement de la vidéo")
+                            st.info(f"🔍 DEBUG: download_video_to_path a retourné False")
                         
                         # Nettoyer le fichier temporaire
                         if uploaded_image and os.path.exists(temp_image_path):
