@@ -312,7 +312,7 @@ def get_user_videos(user_id, limit=50):
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute(
-            "SELECT id,prompt,video_url,created_at FROM video_generate WHERE user_id=%s ORDER BY created_at DESC LIMIT %s",
+            "SELECT id,prompt,image_url,video_url,created_at FROM video_generate WHERE user_id=%s ORDER BY created_at DESC LIMIT %s",
             (user_id, limit)
         )
         rows = cur.fetchall()
@@ -321,6 +321,30 @@ def get_user_videos(user_id, limit=50):
         return [dict(r) for r in rows]
     except Exception as e:
         print(f"❌ get_user_videos error: {e}")
+        conn.close()
+        return []
+
+def get_all_videos(limit=100):
+    """Récupère toutes les vidéos de tous les utilisateurs pour la galerie publique."""
+    conn = get_db_connection()
+    if not conn:
+        return []
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("""
+            SELECT v.id, v.prompt, v.image_url, v.video_url, v.created_at, 
+                   u.username 
+            FROM video_generate v
+            JOIN users u ON v.user_id = u.id
+            ORDER BY v.created_at DESC 
+            LIMIT %s
+        """, (limit,))
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        print(f"❌ get_all_videos error: {e}")
         conn.close()
         return []
 
@@ -597,7 +621,7 @@ def show_generator_page():
     
     st.divider()
     
-    tab1, tab2 = st.tabs(["Générer une vidéo", "Mes vidéos"])
+    tab1, tab2, tab3 = st.tabs(["Générer une vidéo", "Mes vidéos", "🌟 Galerie publique"])
     
     with tab1:
         st.subheader("Créer une nouvelle vidéo")
@@ -680,22 +704,94 @@ def show_generator_page():
                     print(traceback.format_exc())
     
     with tab2:
-        st.subheader("Historique de vos vidéos")
+        st.subheader("📹 Historique de vos vidéos")
         
         videos = get_user_videos(user['id'])
         
         if not videos:
             st.info("Vous n'avez pas encore généré de vidéos.")
         else:
-            for video in videos:
-                with st.expander(f"📹 {video['prompt'][:50]}... ({video['created_at']})"):
-                    st.write(f"**Prompt complet:** {video['prompt']}")
-                    st.write(f"**Créée le:** {video['created_at']}")
-                    
-                    if os.path.exists(video['video_url']):
-                        st.video(video['video_url'])
-                    else:
-                        st.warning("Vidéo non disponible localement")
+            st.write(f"**{len(videos)} vidéo(s) générée(s)**")
+            
+            # Affichage en grille
+            cols_per_row = 2
+            for i in range(0, len(videos), cols_per_row):
+                cols = st.columns(cols_per_row)
+                for j, col in enumerate(cols):
+                    if i + j < len(videos):
+                        video = videos[i + j]
+                        with col:
+                            with st.container(border=True):
+                                st.write(f"**{video['prompt'][:60]}...**" if len(video['prompt']) > 60 else f"**{video['prompt']}**")
+                                st.caption(f"📅 {video['created_at'].strftime('%d/%m/%Y %H:%M')}")
+                                
+                                # Afficher l'image si disponible
+                                if video.get('image_url') and os.path.exists(video['image_url']):
+                                    st.image(video['image_url'], use_container_width=True)
+                                
+                                # Afficher la vidéo
+                                if os.path.exists(video['video_url']):
+                                    st.video(video['video_url'])
+                                else:
+                                    st.warning("⚠️ Vidéo non disponible")
+                                
+                                # Bouton pour voir les détails
+                                if st.button("📝 Détails", key=f"details_my_{video['id']}"):
+                                    st.info(f"**Prompt complet:** {video['prompt']}")
+                                    st.info(f"**ID:** {video['id']}")
+    
+    with tab3:
+        st.subheader("🌟 Galerie publique - Toutes les vidéos")
+        st.write("Découvrez toutes les vidéos générées par la communauté!")
+        
+        # Filtres
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            search_query = st.text_input("🔍 Rechercher dans les prompts", placeholder="Ex: chat, paysage...")
+        with col2:
+            limit = st.selectbox("Afficher", [20, 50, 100, 200], index=1)
+        
+        all_videos = get_all_videos(limit=limit)
+        
+        # Filtrer par recherche
+        if search_query:
+            all_videos = [v for v in all_videos if search_query.lower() in v['prompt'].lower()]
+        
+        if not all_videos:
+            st.info("Aucune vidéo dans la galerie pour le moment.")
+        else:
+            st.write(f"**{len(all_videos)} vidéo(s) dans la galerie**")
+            
+            # Affichage en grille 3 colonnes
+            cols_per_row = 3
+            for i in range(0, len(all_videos), cols_per_row):
+                cols = st.columns(cols_per_row)
+                for j, col in enumerate(cols):
+                    if i + j < len(all_videos):
+                        video = all_videos[i + j]
+                        with col:
+                            with st.container(border=True):
+                                # Nom d'utilisateur
+                                st.caption(f"👤 Par **{video['username']}**")
+                                
+                                # Prompt
+                                st.write(f"**{video['prompt'][:50]}...**" if len(video['prompt']) > 50 else f"**{video['prompt']}**")
+                                st.caption(f"📅 {video['created_at'].strftime('%d/%m/%Y %H:%M')}")
+                                
+                                # Afficher l'image miniature si disponible
+                                if video.get('image_url') and os.path.exists(video['image_url']):
+                                    st.image(video['image_url'], use_container_width=True)
+                                
+                                # Afficher la vidéo
+                                if os.path.exists(video['video_url']):
+                                    st.video(video['video_url'])
+                                else:
+                                    st.warning("⚠️ Vidéo non disponible")
+                                
+                                # Bouton pour voir les détails
+                                with st.expander("📝 Voir le prompt complet"):
+                                    st.write(video['prompt'])
+                                    st.caption(f"ID: {video['id']}")
 
 # ==============================================================
 # MAIN APP LOGIC
