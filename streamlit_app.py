@@ -76,6 +76,13 @@ def init_database():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
+        
+        # Modifier la colonne image_url pour permettre NULL si la table existe déjà
+        cur.execute("""
+            ALTER TABLE video_generate 
+            ALTER COLUMN image_url DROP NOT NULL;
+        """)
+        
         cur.execute("""
             CREATE TABLE IF NOT EXISTS user_reset_password (
                 id SERIAL PRIMARY KEY,
@@ -220,7 +227,7 @@ def reset_password(token, newpass):
 # VIDEO HELPERS
 # ==============================================================
 
-def save_video_to_db(user_id, prompt, video_path):
+def save_video_to_db(user_id, prompt, video_path, image_path=None):
     """Insère une vidéo dans la DB avec debug détaillé."""
     error_msg = None
     
@@ -229,6 +236,7 @@ def save_video_to_db(user_id, prompt, video_path):
     print(f"  user_id: {user_id} (type: {type(user_id)})")
     print(f"  prompt: {prompt[:100]}... (len: {len(prompt)})")
     print(f"  video_path: {video_path}")
+    print(f"  image_path: {image_path}")
     print(f"  file exists: {os.path.exists(video_path)}")
     
     if os.path.exists(video_path):
@@ -254,12 +262,12 @@ def save_video_to_db(user_id, prompt, video_path):
     try:
         cur = conn.cursor()
         print(f"  Executing INSERT query...")
-        print(f"  Query params: user_id={user_id}, prompt_len={len(prompt)}, video_path={video_path}")
+        print(f"  Query params: user_id={user_id}, prompt_len={len(prompt)}, video_path={video_path}, image_path={image_path}")
         st.info(f"🔍 Exécution INSERT avec user_id={user_id}")
         
         cur.execute(
-            "INSERT INTO video_generate (user_id, prompt, video_url) VALUES (%s, %s, %s) RETURNING id",
-            (user_id, prompt, video_path)
+            "INSERT INTO video_generate (user_id, prompt, image_url, video_url) VALUES (%s, %s, %s, %s) RETURNING id",
+            (user_id, prompt, image_path, video_path)
         )
         
         vid_id = cur.fetchone()[0]
@@ -572,8 +580,8 @@ def show_generator_page():
                         st.info(f"📹 Vous avez {video_count} vidéos en BD")
                         
                         # Test d'insertion factice (avec rollback)
-                        cur.execute("INSERT INTO video_generate (user_id, prompt, video_url) VALUES (%s, %s, %s) RETURNING id",
-                                  (user['id'], "TEST", "/tmp/test.mp4"))
+                        cur.execute("INSERT INTO video_generate (user_id, prompt, image_url, video_url) VALUES (%s, %s, %s, %s) RETURNING id",
+                                  (user['id'], "TEST", None, "/tmp/test.mp4"))
                         test_id = cur.fetchone()[0]
                         conn.rollback()  # On annule l'insertion
                         st.success(f"✅ Test INSERT OK (rollback effectué, test_id={test_id})")
@@ -616,20 +624,23 @@ def show_generator_page():
                 try:
                     with st.spinner("Génération en cours..."):
                         # Sauvegarder l'image uploadée
+                        temp_image_path = None
                         if uploaded_image:
                             temp_image_path = os.path.join(STATIC_DIR, f"temp_{uuid.uuid4()}.png")
                             with open(temp_image_path, "wb") as f:
                                 f.write(uploaded_image.read())
+                            image_for_generation = temp_image_path
                         else:
                             # Créer une image par défaut si aucune n'est fournie
                             temp_image_path = os.path.join(STATIC_DIR, "default.png")
                             if not os.path.exists(temp_image_path):
                                 st.error("Veuillez uploader une image!")
                                 st.stop()
+                            image_for_generation = temp_image_path
                         
                         # Générer la vidéo
                         video_path = generate_video_with_fallback(
-                            prompt, temp_image_path, width, height, duration
+                            prompt, image_for_generation, width, height, duration
                         )
                         
                         # Télécharger et sauvegarder la vidéo
@@ -646,8 +657,8 @@ def show_generator_page():
                             st.info(f"🔍 DEBUG: User ID: {user['id']}")
                             st.info(f"🔍 DEBUG: Prompt: {prompt[:50]}...")
                             
-                            # Sauvegarder dans la base de données
-                            save_result = save_video_to_db(user['id'], prompt, final_video_path)
+                            # Sauvegarder dans la base de données avec le chemin de l'image
+                            save_result = save_video_to_db(user['id'], prompt, final_video_path, temp_image_path)
                             st.info(f"🔍 DEBUG: Résultat save_video_to_db: {save_result}")
                             
                             if save_result:
@@ -660,9 +671,9 @@ def show_generator_page():
                             st.error("❌ Erreur lors du téléchargement de la vidéo")
                             st.info(f"🔍 DEBUG: download_video_to_path a retourné False")
                         
-                        # Nettoyer le fichier temporaire
-                        if uploaded_image and os.path.exists(temp_image_path):
-                            os.remove(temp_image_path)
+                        # Nettoyer le fichier temporaire (optionnel, on peut le garder pour la BD)
+                        # if uploaded_image and os.path.exists(temp_image_path):
+                        #     os.remove(temp_image_path)
                 
                 except Exception as e:
                     st.error(f"Erreur: {str(e)}")
