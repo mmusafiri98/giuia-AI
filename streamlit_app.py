@@ -101,7 +101,7 @@ def register_user(username, email, password):
     if not username or not email or not password:
         return False, "❌ Remplissez tous les champs!"
     if len(password) < 6:
-        return False, "❌ Mot de passe trop corto!"
+        return False, "❌ Mot de passe trop court!"
     
     conn = get_db_connection()
     if not conn:
@@ -168,14 +168,14 @@ def request_password_reset(email):
         conn.commit()
         cur.close()
         conn.close()
-        return True, f"✅ Token generato (mostrare in prod via email): {token}"
+        return True, f"✅ Token généré: {token}"
     except Exception as e:
         conn.close()
         return False, str(e)
 
 def reset_password(token, newpass):
     if len(newpass) < 6:
-        return False, "❌ Mot de passe troppo corto"
+        return False, "❌ Mot de passe trop court"
     conn = get_db_connection()
     if not conn:
         return False, "❌ DB inaccessible"
@@ -368,3 +368,183 @@ def generate_video_with_fallback(prompt, image_path, width, height, duration):
             continue
     
     raise Exception(f"❌ Tous les modèles ont échoué. Dernière erreur: {str(last_error)}")
+
+# ==============================================================
+# SESSION STATE INITIALIZATION
+# ==============================================================
+
+if 'user' not in st.session_state:
+    st.session_state['user'] = None
+if 'page' not in st.session_state:
+    st.session_state['page'] = 'login'
+
+# ==============================================================
+# INTERFACE UTILISATEUR
+# ==============================================================
+
+def show_login_page():
+    st.title("🎬 VimeoAI - Connexion")
+    
+    tab1, tab2, tab3 = st.tabs(["Connexion", "Inscription", "Mot de passe oublié"])
+    
+    with tab1:
+        st.subheader("Se connecter")
+        username = st.text_input("Nom d'utilisateur", key="login_username")
+        password = st.text_input("Mot de passe", type="password", key="login_password")
+        
+        if st.button("Se connecter", type="primary"):
+            user, msg = login_user(username, password)
+            if user:
+                st.session_state['user'] = user
+                st.session_state['page'] = 'generator'
+                st.success(msg)
+                st.rerun()
+            else:
+                st.error(msg)
+    
+    with tab2:
+        st.subheader("Créer un compte")
+        new_username = st.text_input("Nom d'utilisateur", key="reg_username")
+        new_email = st.text_input("Email", key="reg_email")
+        new_password = st.text_input("Mot de passe", type="password", key="reg_password")
+        
+        if st.button("S'inscrire", type="primary"):
+            success, msg = register_user(new_username, new_email, new_password)
+            if success:
+                st.success(msg)
+                st.info("Vous pouvez maintenant vous connecter!")
+            else:
+                st.error(msg)
+    
+    with tab3:
+        st.subheader("Réinitialiser le mot de passe")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("**Étape 1: Demander un token**")
+            reset_email = st.text_input("Email", key="reset_email")
+            if st.button("Envoyer le token"):
+                success, msg = request_password_reset(reset_email)
+                if success:
+                    st.success(msg)
+                else:
+                    st.error(msg)
+        
+        with col2:
+            st.write("**Étape 2: Réinitialiser**")
+            reset_token = st.text_input("Token reçu", key="reset_token")
+            new_pass = st.text_input("Nouveau mot de passe", type="password", key="new_pass")
+            if st.button("Réinitialiser"):
+                success, msg = reset_password(reset_token, new_pass)
+                if success:
+                    st.success(msg)
+                else:
+                    st.error(msg)
+
+def show_generator_page():
+    user = st.session_state['user']
+    
+    st.title(f"🎬 VimeoAI - Générateur de Vidéos")
+    st.write(f"Bienvenue **{user['username']}**!")
+    
+    if st.button("Se déconnecter", type="secondary"):
+        st.session_state['user'] = None
+        st.session_state['page'] = 'login'
+        st.rerun()
+    
+    st.divider()
+    
+    tab1, tab2 = st.tabs(["Générer une vidéo", "Mes vidéos"])
+    
+    with tab1:
+        st.subheader("Créer une nouvelle vidéo")
+        
+        prompt = st.text_area("Description de la vidéo", 
+                             placeholder="Ex: Un chat qui joue avec une balle...",
+                             height=100)
+        
+        uploaded_image = st.file_uploader("Image de départ (optionnelle)", 
+                                         type=['png', 'jpg', 'jpeg'])
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            width = st.selectbox("Largeur", [512, 768, 1024], index=1)
+        with col2:
+            height = st.selectbox("Hauteur", [512, 768, 1024], index=1)
+        with col3:
+            duration = st.slider("Durée (secondes)", 3, 10, 5)
+        
+        if st.button("🎬 Générer la vidéo", type="primary"):
+            if not prompt:
+                st.error("Veuillez entrer une description!")
+            else:
+                try:
+                    with st.spinner("Génération en cours..."):
+                        # Sauvegarder l'image uploadée
+                        if uploaded_image:
+                            temp_image_path = os.path.join(STATIC_DIR, f"temp_{uuid.uuid4()}.png")
+                            with open(temp_image_path, "wb") as f:
+                                f.write(uploaded_image.read())
+                        else:
+                            # Créer une image par défaut si aucune n'est fournie
+                            temp_image_path = os.path.join(STATIC_DIR, "default.png")
+                            if not os.path.exists(temp_image_path):
+                                st.error("Veuillez uploader une image!")
+                                st.stop()
+                        
+                        # Générer la vidéo
+                        video_path = generate_video_with_fallback(
+                            prompt, temp_image_path, width, height, duration
+                        )
+                        
+                        # Télécharger et sauvegarder la vidéo
+                        final_video_path = os.path.join(GENERATED_DIR, f"video_{uuid.uuid4()}.mp4")
+                        if download_video_to_path(video_path, final_video_path):
+                            # Sauvegarder dans la base de données
+                            if save_video_to_db(user['id'], prompt, final_video_path):
+                                st.success("✅ Vidéo générée et sauvegardée!")
+                                st.video(final_video_path)
+                            else:
+                                st.error("Erreur lors de la sauvegarde en base de données")
+                        else:
+                            st.error("Erreur lors du téléchargement de la vidéo")
+                        
+                        # Nettoyer le fichier temporaire
+                        if uploaded_image and os.path.exists(temp_image_path):
+                            os.remove(temp_image_path)
+                
+                except Exception as e:
+                    st.error(f"Erreur: {str(e)}")
+                    print(traceback.format_exc())
+    
+    with tab2:
+        st.subheader("Historique de vos vidéos")
+        
+        videos = get_user_videos(user['id'])
+        
+        if not videos:
+            st.info("Vous n'avez pas encore généré de vidéos.")
+        else:
+            for video in videos:
+                with st.expander(f"📹 {video['prompt'][:50]}... ({video['created_at']})"):
+                    st.write(f"**Prompt complet:** {video['prompt']}")
+                    st.write(f"**Créée le:** {video['created_at']}")
+                    
+                    if os.path.exists(video['video_url']):
+                        st.video(video['video_url'])
+                    else:
+                        st.warning("Vidéo non disponible localement")
+
+# ==============================================================
+# MAIN APP LOGIC
+# ==============================================================
+
+def main():
+    if st.session_state['user'] is None:
+        show_login_page()
+    else:
+        show_generator_page()
+
+if __name__ == "__main__":
+    main()
