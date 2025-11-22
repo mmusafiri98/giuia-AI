@@ -24,7 +24,7 @@ GENERATED_DIR = os.path.join(BASE_DIR, "generated_videos")
 os.makedirs(STATIC_DIR, exist_ok=True)
 os.makedirs(GENERATED_DIR, exist_ok=True)
 
-DATABASE_URL = "postgresql://neondb_owner@ep-icy-tooth-adi815w9-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require"
+DATABASE_URL = "psql 'postgresql://neondb_owner:npg_b3qwDlLzV9YO@ep-icy-tooth-adi815w9-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require'"
 PRIMARY_CLIENT = "Lightricks/ltx-video-distilled"
 FALLBACK_CLIENT = "multimodalart/wan-2-2-first-last-frame"
 
