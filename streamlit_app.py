@@ -631,7 +631,7 @@ def show_generator_page():
                              height=100)
         
         uploaded_image = st.file_uploader("Image de départ (optionnelle)", 
-                                         type=['png', 'jpg', 'jpeg'])
+                                         type=['png', 'jpg', 'jpeg','webp'])
         
         col1, col2, col3 = st.columns(3)
         with col1:
