@@ -1,0 +1,10 @@
+>> git add src/components/PostInput.js src/App.css
+>>
+>> # Oppure tutti i file modificati
+>> # git add .
+>> 
+>> # Crea il commit con un messaggio
+>> git commit -m "Aggiornamenti a PostInput.js e App.css"
+>> 
+>> # Spingi le modifiche sul repository remoto
+>> git push origin main
